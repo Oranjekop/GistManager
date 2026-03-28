@@ -1,11 +1,11 @@
 const { app, BrowserWindow, clipboard, ipcMain, Menu, shell } = require('electron')
-const { spawn } = require('node:child_process')
 const net = require('node:net')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
 const backendPort = 3000
-let backendProcess = null
+let backendServer = null
 
 function waitForPort(port, timeoutMs = 15000) {
   const start = Date.now()
@@ -35,24 +35,15 @@ function waitForPort(port, timeoutMs = 15000) {
   })
 }
 
-function startBackend() {
-  const serverEntry = path.join(__dirname, '..', 'server', 'index.js')
-  const args = isDev ? ['--watch', serverEntry] : [serverEntry]
+async function startBackend() {
+  if (backendServer) {
+    return
+  }
 
-  backendProcess = spawn(process.execPath, args, {
-    cwd: path.join(__dirname, '..'),
-    env: {
-      ...process.env,
-      PORT: String(backendPort)
-    },
-    stdio: 'inherit'
-  })
-
-  backendProcess.on('exit', () => {
-    backendProcess = null
-  })
-
-  return waitForPort(backendPort)
+  const serverEntryUrl = pathToFileURL(path.join(__dirname, '..', 'server', 'index.js')).href
+  const serverModule = await import(serverEntryUrl)
+  backendServer = serverModule.startServer(backendPort)
+  await waitForPort(backendPort)
 }
 
 async function createWindow() {
@@ -129,7 +120,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  if (backendProcess) {
-    backendProcess.kill()
+  if (backendServer) {
+    backendServer.close()
+    backendServer = null
   }
 })

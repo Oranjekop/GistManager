@@ -52,5 +52,9 @@
     "electron": "^41.1.0",
     "electron-builder": "^26.8.1",
     "wait-on": "^9.0.4"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
   }
 }
