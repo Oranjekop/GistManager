@@ -44,7 +44,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "GistManager-Setup-${version}.exe",
-      "shortcutName": "Gist管理器"
+      "shortcutName": "Gist管理器",
+      "uninstallerIcon": "build/icon.ico",
+      "include": "build/nsis-shortcuts.nsh"
     }
   },
   "devDependencies": {
