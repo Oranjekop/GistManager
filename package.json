@@ -1,0 +1,56 @@
+{
+  "name": "gist-editor-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "dev:desktop": "concurrently -k \"npm run dev:client\" \"wait-on http://127.0.0.1:5173 && set ELECTRON_RENDERER_URL=http://127.0.0.1:5173&& electron .\"",
+    "desktop": "electron .",
+    "build": "npm --prefix client run build",
+    "dist:win": "npm run build && electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.perzikkop.gist-manager",
+    "productName": "Gist管理器",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "client/dist/**/*",
+      "package.json",
+      "build/**/*"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "asar": true,
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "GistManager-Setup-${version}.exe",
+      "shortcutName": "Gist管理器"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^41.1.0",
+    "electron-builder": "^26.8.1",
+    "wait-on": "^9.0.4"
+  }
+}
