@@ -14,6 +14,7 @@
   "build": {
     "appId": "com.perzikkop.gist-manager",
     "productName": "Gist管理器",
+    "afterPack": "build/after-pack.cjs",
     "directories": {
       "output": "release"
     },
