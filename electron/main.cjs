@@ -1,54 +1,10 @@
 const { app, BrowserWindow, clipboard, ipcMain, Menu, shell } = require('electron')
-const net = require('node:net')
 const path = require('node:path')
-const { pathToFileURL } = require('node:url')
+const gistService = require('./gist-service.cjs')
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
-const backendPort = 3000
-let backendServer = null
-
-function waitForPort(port, timeoutMs = 15000) {
-  const start = Date.now()
-
-  return new Promise((resolve, reject) => {
-    const tryConnect = () => {
-      const socket = net.connect(port, '127.0.0.1')
-
-      socket.once('connect', () => {
-        socket.end()
-        resolve()
-      })
-
-      socket.once('error', () => {
-        socket.destroy()
-
-        if (Date.now() - start >= timeoutMs) {
-          reject(new Error(`Timed out waiting for port ${port}.`))
-          return
-        }
-
-        setTimeout(tryConnect, 250)
-      })
-    }
-
-    tryConnect()
-  })
-}
-
-async function startBackend() {
-  if (backendServer) {
-    return
-  }
-
-  const serverEntryUrl = pathToFileURL(path.join(__dirname, '..', 'server', 'index.js')).href
-  const serverModule = await import(serverEntryUrl)
-  backendServer = serverModule.startServer(backendPort)
-  await waitForPort(backendPort)
-}
 
 async function createWindow() {
-  await startBackend()
-
   const window = new BrowserWindow({
     width: 1600,
     height: 980,
@@ -99,6 +55,31 @@ app.whenReady().then(() => {
     return true
   })
 
+  ipcMain.handle('gist-api', async (_, request = {}) => {
+    const { action, token, gistId, payload, params } = request
+
+    try {
+      switch (action) {
+        case 'session':
+          return await gistService.getSession(token)
+        case 'list-gists':
+          return await gistService.listGists(token, params)
+        case 'get-gist':
+          return await gistService.getGist(token, gistId)
+        case 'create-gist':
+          return await gistService.createGist(token, payload)
+        case 'update-gist':
+          return await gistService.updateGist(token, gistId, payload)
+        case 'delete-gist':
+          return await gistService.deleteGist(token, gistId)
+        default:
+          throw new Error(`未知客户端操作：${action || 'empty'}`)
+      }
+    } catch (error) {
+      throw new Error(error.message || '客户端请求失败。')
+    }
+  })
+
   createWindow().catch((error) => {
     console.error(error)
     app.quit()
@@ -116,12 +97,5 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
-  }
-})
-
-app.on('before-quit', () => {
-  if (backendServer) {
-    backendServer.close()
-    backendServer = null
   }
 })

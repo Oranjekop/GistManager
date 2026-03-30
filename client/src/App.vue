@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import CodeEditor from './components/CodeEditor.vue'
 
-const apiBase = window.gistDesktop?.apiBase || '/api'
+const webApiBase = '/api'
 const token = ref(localStorage.getItem('gist-editor-token') || '')
 const tokenDraft = ref(localStorage.getItem('gist-editor-token') || '')
 const profile = ref(null)
@@ -172,12 +172,59 @@ function cancelComposer() {
   setStatus('已取消当前新增操作。')
 }
 
-function getApiUrl(path) {
-  return `${apiBase}${path}`
-}
-
 async function api(path, options = {}) {
-  const response = await fetch(getApiUrl(path), {
+  if (window.gistDesktop?.request) {
+    const body = options.body ? JSON.parse(options.body) : undefined
+
+    if (path === '/session') {
+      return window.gistDesktop.request('session', {
+        token: token.value
+      })
+    }
+
+    if (path === '/gists' && options.method === 'POST') {
+      return window.gistDesktop.request('create-gist', {
+        token: token.value,
+        payload: body
+      })
+    }
+
+    if (path === '/gists') {
+      return window.gistDesktop.request('list-gists', {
+        token: token.value
+      })
+    }
+
+    const gistMatch = path.match(/^\/gists\/([^/]+)$/)
+
+    if (gistMatch) {
+      const gistId = gistMatch[1]
+
+      if (options.method === 'PATCH') {
+        return window.gistDesktop.request('update-gist', {
+          token: token.value,
+          gistId,
+          payload: body
+        })
+      }
+
+      if (options.method === 'DELETE') {
+        return window.gistDesktop.request('delete-gist', {
+          token: token.value,
+          gistId
+        })
+      }
+
+      return window.gistDesktop.request('get-gist', {
+        token: token.value,
+        gistId
+      })
+    }
+
+    throw new Error(`不支持的客户端请求：${path}`)
+  }
+
+  const response = await fetch(`${webApiBase}${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token.value}`,
