@@ -20,6 +20,7 @@ const draftGistPublic = ref(false)
 const draftFileName = ref('new-file.txt')
 const draftFileContent = ref('')
 const renameTarget = ref('')
+const editMode = ref(false)
 const loadingSession = ref(false)
 const loadingDetail = ref(false)
 const saving = ref(false)
@@ -77,7 +78,13 @@ const hasComposerChanges = computed(() => {
 
   return false
 })
-const canSave = computed(() => Boolean(selectedGistId.value && selectedFile.value && !saving.value))
+const canSave = computed(() => Boolean(
+  selectedGistId.value &&
+  selectedFile.value &&
+  editMode.value &&
+  !saving.value &&
+  (hasUnsavedContent.value || hasUnsavedDescription.value)
+))
 
 function setStatus(message = '', error = '') {
   statusMessage.value = message
@@ -234,6 +241,7 @@ function copyCurrentFileRaw() {
 function syncSelection(data, preferredFilename = '') {
   gist.value = data
   workspaceMode.value = 'browse'
+  editMode.value = false
   description.value = data.description || ''
   const nextFilename = preferredFilename || Object.keys(data.files || {})[0] || ''
   selectedFile.value = nextFilename
@@ -303,6 +311,7 @@ function startReplaceToken() {
   editorContent.value = ''
   renameTarget.value = ''
   description.value = ''
+  editMode.value = false
   workspaceMode.value = 'browse'
   clearPersistedToken()
   setStatus('请输入新的 Token 重新连接。')
@@ -347,9 +356,40 @@ function selectFile(filename) {
   }
 
   selectedFile.value = filename
+  editMode.value = false
   editorContent.value = gist.value?.files?.[filename]?.content || ''
   renameTarget.value = filename
   setStatus('文件已切换。')
+}
+
+function startEditing() {
+  if (!currentFile.value) {
+    setStatus('', '请先选择文件。')
+    return
+  }
+
+  editMode.value = true
+  setStatus('已进入编辑模式。')
+}
+
+function cancelEditing() {
+  if (!gist.value || !currentFile.value) {
+    editMode.value = false
+    return
+  }
+
+  if (hasUnsavedContent.value || hasUnsavedDescription.value) {
+    const shouldDiscard = window.confirm('当前有未保存改动，确定要放弃并退出编辑模式吗？')
+
+    if (!shouldDiscard) {
+      return
+    }
+  }
+
+  description.value = gist.value.description || ''
+  editorContent.value = currentFile.value.content || ''
+  editMode.value = false
+  setStatus('已退出编辑模式。')
 }
 
 async function createGist() {
@@ -670,7 +710,12 @@ async function deleteGist() {
 
           <section class="inline-card form-stack">
             <div class="section-title">Gist 信息</div>
-            <input v-model="description" type="text" placeholder="编辑 gist 描述" />
+            <input
+              v-model="description"
+              :disabled="!editMode"
+              type="text"
+              placeholder="编辑 gist 描述"
+            />
             <div class="meta-row">
               <span>{{ gist.public ? '公开' : '私有' }}</span>
               <code>{{ gist.id }}</code>
@@ -788,8 +833,28 @@ async function deleteGist() {
               <span class="editor-badge">{{ currentFile.language || '纯文本' }}</span>
               <button class="ghost-button compact-button" @click="copyCurrentFileRaw">复制 Raw 链接</button>
               <button class="ghost-button compact-button" @click="openCurrentFileRaw">打开 Raw</button>
-              <button class="primary-button compact-button" :disabled="!canSave" @click="saveCurrent">
-                {{ saving ? '保存中...' : hasUnsavedContent || hasUnsavedDescription ? '保存改动' : '同步保存' }}
+              <button
+                v-if="!editMode"
+                class="ghost-button compact-button"
+                :disabled="loadingDetail || saving"
+                @click="startEditing"
+              >
+                编辑
+              </button>
+              <button
+                v-else
+                class="ghost-button compact-button"
+                :disabled="saving"
+                @click="cancelEditing"
+              >
+                取消编辑
+              </button>
+              <button
+                class="primary-button compact-button"
+                :disabled="!canSave"
+                @click="saveCurrent"
+              >
+                {{ saving ? '保存中...' : '保存改动' }}
               </button>
             </div>
           </div>
@@ -798,11 +863,12 @@ async function deleteGist() {
             <CodeEditor
               v-model="editorContent"
               :filename="currentFile.filename"
-              :read-only="loadingDetail || saving"
+              :read-only="loadingDetail || saving || !editMode"
             />
           </div>
 
           <footer class="editor-footer">
+            <span>{{ editMode ? '编辑模式' : '查看模式' }}</span>
             <span>{{ hasUnsavedContent ? '内容已修改' : '内容已同步' }}</span>
             <span>{{ hasUnsavedDescription ? '描述待保存' : '描述已同步' }}</span>
             <span>{{ currentFile.size }} 字节</span>

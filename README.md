@@ -67,7 +67,7 @@ npm run dist:win
 打包完成后，安装包会输出到：
 
 ```text
-release/GistManager-Setup-1.0.0.exe
+release/GistManager-Setup-1.0.1.exe
 ```
 
 ## Token 说明
@@ -127,7 +127,7 @@ release/GistManager-Setup-1.0.0.exe
 
 当前项目中已生成 Windows 安装包：
 
-- `release/GistManager-Setup-1.0.0.exe`
+- `release/GistManager-Setup-1.0.1.exe`
 
 ## 后续可扩展
 
