@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import CodeEditor from './components/CodeEditor.vue'
 
 const webApiBase = '/api'
-const token = ref(localStorage.getItem('gist-editor-token') || '')
-const tokenDraft = ref(localStorage.getItem('gist-editor-token') || '')
+const legacyToken = localStorage.getItem('gist-editor-token') || ''
+const token = ref('')
+const tokenDraft = ref('')
 const profile = ref(null)
 const gists = ref([])
 const gist = ref(null)
@@ -27,6 +28,44 @@ const saving = ref(false)
 const deleting = ref(false)
 const statusMessage = ref('')
 const errorMessage = ref('')
+const securityReady = ref(false)
+const securityState = ref({
+  locked: false,
+  settings: {
+    lockEnabled: false,
+    biometricEnabled: false,
+    hasPassword: false
+  },
+  biometric: {
+    available: false,
+    label: '系统身份验证',
+    reason: ''
+  }
+})
+const unlockPassword = ref('')
+const unlockError = ref('')
+const unlockingBiometric = ref(false)
+const settingsOpen = ref(false)
+const settingsSaving = ref(false)
+const settingsError = ref('')
+const updateDialogOpen = ref(false)
+const updateState = ref({
+  status: 'idle',
+  currentVersion: '',
+  availableVersion: '',
+  percent: 0,
+  transferred: 0,
+  total: 0,
+  message: ''
+})
+let removeUpdateListener = null
+const securityForm = ref({
+  lockEnabled: false,
+  biometricEnabled: false,
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
 const confirmDialog = ref({
   open: false,
   title: '',
@@ -39,7 +78,15 @@ const files = computed(() => Object.values(gist.value?.files || {}))
 const selectedGistId = computed(() => gist.value?.id || '')
 const currentFile = computed(() => gist.value?.files?.[selectedFile.value] || null)
 const isConnected = computed(() => Boolean(profile.value && token.value))
-const needsTokenSetup = computed(() => !isConnected.value && !loadingSession.value)
+const hasDesktopSecurity = computed(() => Boolean(window.gistDesktop?.security))
+const hasDesktopUpdates = computed(() => Boolean(window.gistDesktop?.updates))
+const updateBusy = computed(() => ['checking', 'downloading'].includes(updateState.value.status))
+const needsTokenSetup = computed(() => (
+  securityReady.value &&
+  !securityState.value.locked &&
+  !isConnected.value &&
+  !loadingSession.value
+))
 const filteredGists = computed(() => {
   const keyword = searchText.value.trim().toLowerCase()
 
@@ -120,12 +167,256 @@ async function confirmDialogAction() {
   }
 }
 
-function persistToken() {
+async function persistToken() {
+  if (window.gistDesktop?.security) {
+    await window.gistDesktop.security.saveToken(token.value)
+    localStorage.removeItem('gist-editor-token')
+    return
+  }
+
   localStorage.setItem('gist-editor-token', token.value)
 }
 
-function clearPersistedToken() {
+async function clearPersistedToken() {
+  if (window.gistDesktop?.security) {
+    await window.gistDesktop.security.clearToken()
+  }
   localStorage.removeItem('gist-editor-token')
+}
+
+function applySecurityState(state) {
+  securityState.value = {
+    ...securityState.value,
+    ...state,
+    settings: {
+      ...securityState.value.settings,
+      ...(state?.settings || {})
+    },
+    biometric: {
+      ...securityState.value.biometric,
+      ...(state?.biometric || {})
+    }
+  }
+}
+
+async function loadSavedToken() {
+  if (window.gistDesktop?.security) {
+    let savedToken = await window.gistDesktop.security.loadToken()
+
+    if (!savedToken && legacyToken) {
+      await window.gistDesktop.security.saveToken(legacyToken)
+      savedToken = legacyToken
+    }
+
+    localStorage.removeItem('gist-editor-token')
+    token.value = savedToken
+    tokenDraft.value = savedToken
+    return
+  }
+
+  token.value = legacyToken
+  tokenDraft.value = legacyToken
+}
+
+async function resumeAfterUnlock() {
+  await loadSavedToken()
+  if (tokenDraft.value.trim() && !profile.value) {
+    await connectWorkspace()
+  }
+}
+
+async function initializeSecurity() {
+  try {
+    if (window.gistDesktop?.security) {
+      const state = await window.gistDesktop.security.getState()
+      applySecurityState(state)
+      securityReady.value = true
+
+      if (state.locked && state.settings.biometricEnabled && state.biometric.available) {
+        await unlockWithBiometric()
+      } else if (!state.locked) {
+        await resumeAfterUnlock()
+      }
+      return
+    }
+
+    securityReady.value = true
+    await resumeAfterUnlock()
+  } catch (error) {
+    securityReady.value = true
+    unlockError.value = error.message || '读取安全设置失败。'
+  }
+}
+
+async function unlockWithPassword() {
+  unlockError.value = ''
+
+  if (!unlockPassword.value) {
+    unlockError.value = '请输入软件解锁密码。'
+    return
+  }
+
+  try {
+    const result = await window.gistDesktop.security.unlockWithPassword(unlockPassword.value)
+    applySecurityState(result)
+
+    if (!result.success) {
+      unlockError.value = result.message || '解锁密码不正确。'
+      return
+    }
+
+    unlockPassword.value = ''
+    await resumeAfterUnlock()
+  } catch (error) {
+    unlockError.value = error.message || '解锁失败。'
+  }
+}
+
+async function unlockWithBiometric() {
+  if (!window.gistDesktop?.security || unlockingBiometric.value) {
+    return
+  }
+
+  unlockError.value = ''
+  unlockingBiometric.value = true
+
+  try {
+    const result = await window.gistDesktop.security.unlockWithBiometric()
+    applySecurityState(result)
+
+    if (!result.success) {
+      unlockError.value = result.message || '系统身份验证未通过，请使用软件解锁密码。'
+      return
+    }
+
+    await resumeAfterUnlock()
+  } catch (error) {
+    unlockError.value = error.message || '系统身份验证不可用，请使用软件解锁密码。'
+  } finally {
+    unlockingBiometric.value = false
+  }
+}
+
+async function lockApplication() {
+  if (!window.gistDesktop?.security) {
+    return
+  }
+
+  const state = await window.gistDesktop.security.lock()
+  applySecurityState(state)
+  unlockPassword.value = ''
+  unlockError.value = ''
+}
+
+function openSettings() {
+  const current = securityState.value.settings
+  securityForm.value = {
+    lockEnabled: current.lockEnabled,
+    biometricEnabled: current.biometricEnabled,
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  }
+  settingsError.value = ''
+  settingsOpen.value = true
+}
+
+async function saveSecuritySettings() {
+  const form = securityForm.value
+  settingsError.value = ''
+
+  if (form.newPassword !== form.confirmPassword) {
+    settingsError.value = '两次输入的新密码不一致。'
+    return
+  }
+
+  settingsSaving.value = true
+  try {
+    const state = await window.gistDesktop.security.configure({
+      lockEnabled: form.lockEnabled,
+      biometricEnabled: form.biometricEnabled,
+      currentPassword: form.currentPassword,
+      newPassword: form.newPassword
+    })
+    applySecurityState(state)
+    settingsOpen.value = false
+    setStatus('安全设置已保存。')
+  } catch (error) {
+    settingsError.value = error.message || '保存安全设置失败。'
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
+function applyUpdateState(state) {
+  updateState.value = {
+    ...updateState.value,
+    ...(state || {})
+  }
+
+  if (['available', 'downloaded'].includes(updateState.value.status)) {
+    updateDialogOpen.value = true
+  }
+}
+
+async function initializeUpdates() {
+  if (!window.gistDesktop?.updates) {
+    return
+  }
+
+  applyUpdateState(await window.gistDesktop.updates.getState())
+  removeUpdateListener = window.gistDesktop.updates.onStateChanged(applyUpdateState)
+}
+
+async function checkForUpdates() {
+  updateDialogOpen.value = true
+  try {
+    applyUpdateState(await window.gistDesktop.updates.check())
+  } catch (error) {
+    applyUpdateState({ status: 'error', message: error.message || '检查更新失败。' })
+  }
+}
+
+async function selectUpdateChannel(channel) {
+  if (channel === updateState.value.channel || updateBusy.value) {
+    return
+  }
+
+  try {
+    applyUpdateState(await window.gistDesktop.updates.setChannel(channel))
+    await checkForUpdates()
+  } catch (error) {
+    applyUpdateState({ status: 'error', message: error.message || '切换更新通道失败。' })
+  }
+}
+
+async function downloadUpdate() {
+  try {
+    applyUpdateState({ status: 'downloading', percent: 0, message: '正在准备下载…' })
+    await window.gistDesktop.updates.download()
+  } catch (error) {
+    applyUpdateState({ status: 'error', message: error.message || '下载更新失败。' })
+  }
+}
+
+async function installUpdate() {
+  try {
+    await window.gistDesktop.updates.install()
+  } catch (error) {
+    applyUpdateState({ status: 'error', message: error.message || '启动更新安装失败。' })
+  }
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0)
+  if (!bytes) {
+    return '0 MB'
+  }
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function initializeApp() {
+  await Promise.all([initializeSecurity(), initializeUpdates()])
 }
 
 function resetCreateDraft() {
@@ -319,8 +610,6 @@ async function connectWorkspace() {
 
   token.value = tokenDraft.value.trim()
   loadingSession.value = true
-  persistToken()
-
   try {
     const [sessionData, gistData] = await Promise.all([
       api('/session'),
@@ -329,6 +618,7 @@ async function connectWorkspace() {
 
     profile.value = sessionData
     gists.value = gistData.items
+    await persistToken()
 
     if (gistData.items[0]?.id) {
       const detail = await api(`/gists/${gistData.items[0].id}`)
@@ -348,7 +638,7 @@ async function connectWorkspace() {
   }
 }
 
-function startReplaceToken() {
+async function startReplaceToken() {
   token.value = ''
   tokenDraft.value = ''
   profile.value = null
@@ -360,15 +650,12 @@ function startReplaceToken() {
   description.value = ''
   editMode.value = false
   workspaceMode.value = 'browse'
-  clearPersistedToken()
+  await clearPersistedToken()
   setStatus('请输入新的 Token 重新连接。')
 }
 
-onMounted(() => {
-  if (tokenDraft.value.trim()) {
-    connectWorkspace()
-  }
-})
+onMounted(initializeApp)
+onBeforeUnmount(() => removeUpdateListener?.())
 
 async function selectGist(gistId) {
   if (!gistId || gistId === selectedGistId.value) {
@@ -685,8 +972,33 @@ async function deleteGist() {
         </div>
       </div>
 
-      <div class="topbar-actions" v-if="isConnected">
-        <button class="ghost-button compact-button" @click="startReplaceToken">更换 Token</button>
+      <div class="topbar-actions" v-if="securityReady && !securityState.locked">
+        <button v-if="isConnected" class="ghost-button compact-button" @click="startReplaceToken">更换 Token</button>
+        <button
+          v-if="hasDesktopUpdates"
+          class="ghost-button compact-button update-trigger"
+          :class="{ 'has-update': ['available', 'downloaded'].includes(updateState.status) }"
+          :disabled="updateBusy"
+          @click="checkForUpdates"
+        >
+          {{ updateState.status === 'checking'
+            ? '检查中…'
+            : updateState.status === 'downloading'
+              ? `下载 ${Math.round(updateState.percent)}%`
+            : ['available', 'downloaded'].includes(updateState.status)
+              ? `新版本 ${updateState.availableVersion}`
+              : '检查更新' }}
+        </button>
+        <button
+          v-if="securityState.settings.lockEnabled"
+          class="ghost-button compact-button"
+          @click="lockApplication"
+        >
+          立即锁定
+        </button>
+        <button v-if="hasDesktopSecurity" class="ghost-button compact-button" @click="openSettings">
+          系统设置
+        </button>
       </div>
     </header>
 
@@ -942,6 +1254,167 @@ async function deleteGist() {
       </div>
     </div>
 
+    <div v-if="updateDialogOpen" class="dialog-backdrop" @click="!updateBusy && (updateDialogOpen = false)">
+      <div class="dialog-card update-card" @click.stop>
+        <div class="update-heading">
+          <div class="update-icon">↻</div>
+          <div>
+            <div class="dialog-title">软件更新</div>
+            <p class="dialog-message">当前版本 v{{ updateState.currentVersion || '—' }}</p>
+          </div>
+        </div>
+
+        <div class="update-summary">
+          <strong v-if="updateState.status === 'available'">发现新版本 v{{ updateState.availableVersion }}</strong>
+          <strong v-else-if="updateState.status === 'downloaded'">v{{ updateState.availableVersion }} 已准备就绪</strong>
+          <strong v-else-if="updateState.status === 'checking'">正在连接 GitHub Releases</strong>
+          <strong v-else-if="updateState.status === 'downloading'">正在下载 v{{ updateState.availableVersion }}</strong>
+          <strong v-else-if="updateState.status === 'not-available'">已经是最新版本</strong>
+          <strong v-else-if="updateState.status === 'development'">开发环境</strong>
+          <strong v-else-if="updateState.status === 'error'">更新检查失败</strong>
+          <strong v-else>检查可用更新</strong>
+          <span>{{ updateState.message || '点击检查更新获取最新版本。' }}</span>
+        </div>
+
+        <div class="update-channel-row">
+          <div>
+            <strong>版本通道</strong>
+            <span>{{ updateState.channel === 'beta' ? '优先获取最新测试版本' : '仅获取稳定正式版本' }}</span>
+          </div>
+          <div class="channel-switch" role="group" aria-label="更新版本通道">
+            <button
+              type="button"
+              :class="{ active: updateState.channel === 'stable' }"
+              :disabled="updateBusy"
+              @click="selectUpdateChannel('stable')"
+            >
+              正式版
+            </button>
+            <button
+              type="button"
+              :class="{ active: updateState.channel === 'beta' }"
+              :disabled="updateBusy"
+              @click="selectUpdateChannel('beta')"
+            >
+              测试版
+            </button>
+          </div>
+        </div>
+
+        <div v-if="updateState.status === 'downloading'" class="update-progress">
+          <div class="update-progress-track">
+            <span :style="{ width: `${updateState.percent}%` }"></span>
+          </div>
+          <div class="update-progress-meta">
+            <span>{{ Math.round(updateState.percent) }}%</span>
+            <span>{{ formatBytes(updateState.transferred) }} / {{ formatBytes(updateState.total) }}</span>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button
+            class="ghost-button compact-button"
+            :disabled="updateBusy"
+            @click="updateDialogOpen = false"
+          >
+            稍后
+          </button>
+          <button
+            v-if="updateState.status === 'available'"
+            class="primary-button compact-button"
+            @click="downloadUpdate"
+          >
+            下载更新
+          </button>
+          <button
+            v-else-if="updateState.status === 'downloaded'"
+            class="primary-button compact-button"
+            @click="installUpdate"
+          >
+            重启并安装
+          </button>
+          <button
+            v-else-if="!updateBusy"
+            class="primary-button compact-button"
+            @click="checkForUpdates"
+          >
+            重新检查
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="settingsOpen" class="dialog-backdrop" @click="settingsOpen = false">
+      <div class="dialog-card settings-card" @click.stop>
+        <div>
+          <div class="dialog-title">系统与解锁设置</div>
+          <p class="dialog-message">配置启动保护、系统身份验证和软件解锁密码。</p>
+        </div>
+
+        <label class="settings-toggle">
+          <span>
+            <strong>启动时锁定</strong>
+            <small>每次启动应用都需要先验证身份</small>
+          </span>
+          <input v-model="securityForm.lockEnabled" type="checkbox" />
+        </label>
+
+        <label class="settings-toggle" :class="{ disabled: !securityState.biometric.available }">
+          <span>
+            <strong>{{ securityState.biometric.label }}</strong>
+            <small>
+              {{ securityState.biometric.available
+                ? '优先调用系统验证，失败或不可用时使用软件密码'
+                : securityState.biometric.reason }}
+            </small>
+          </span>
+          <input
+            v-model="securityForm.biometricEnabled"
+            type="checkbox"
+            :disabled="!securityForm.lockEnabled || !securityState.biometric.available"
+          />
+        </label>
+
+        <div class="settings-fields">
+          <label v-if="securityState.settings.hasPassword" class="token-field token-setup-field">
+            <span>当前软件解锁密码</span>
+            <input
+              v-model="securityForm.currentPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="修改设置时需要验证"
+            />
+          </label>
+          <label class="token-field token-setup-field">
+            <span>{{ securityState.settings.hasPassword ? '新密码（留空则不修改）' : '软件解锁密码' }}</span>
+            <input
+              v-model="securityForm.newPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="至少 6 位"
+            />
+          </label>
+          <label class="token-field token-setup-field">
+            <span>确认新密码</span>
+            <input
+              v-model="securityForm.confirmPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="再次输入新密码"
+            />
+          </label>
+        </div>
+
+        <p v-if="settingsError" class="settings-error">{{ settingsError }}</p>
+        <div class="dialog-actions">
+          <button class="ghost-button compact-button" :disabled="settingsSaving" @click="settingsOpen = false">取消</button>
+          <button class="primary-button compact-button" :disabled="settingsSaving" @click="saveSecuritySettings">
+            {{ settingsSaving ? '保存中...' : '保存设置' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="needsTokenSetup" class="dialog-backdrop">
       <div class="dialog-card token-setup-card" @click.stop>
         <div class="dialog-title">连接 GitHub Token</div>
@@ -963,6 +1436,45 @@ async function deleteGist() {
             {{ loadingSession ? '连接中...' : '连接工作区' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <div v-if="!securityReady" class="dialog-backdrop security-backdrop">
+      <div class="security-loader">正在读取安全设置...</div>
+    </div>
+
+    <div v-else-if="securityState.locked" class="dialog-backdrop security-backdrop">
+      <div class="dialog-card unlock-card" @click.stop>
+        <div class="unlock-icon">🔒</div>
+        <div class="unlock-heading">
+          <div class="dialog-title">Gist管理器已锁定</div>
+          <p class="dialog-message">验证身份后才能访问本地 Token 和 Gist 工作区。</p>
+        </div>
+
+        <button
+          v-if="securityState.settings.biometricEnabled && securityState.biometric.available"
+          class="primary-button biometric-button"
+          :disabled="unlockingBiometric"
+          @click="unlockWithBiometric"
+        >
+          {{ unlockingBiometric ? '正在等待系统验证...' : `使用 ${securityState.biometric.label} 解锁` }}
+        </button>
+
+        <div v-if="securityState.settings.biometricEnabled" class="unlock-divider">
+          <span>或使用软件密码</span>
+        </div>
+
+        <form class="unlock-form" @submit.prevent="unlockWithPassword">
+          <input
+            v-model="unlockPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="输入软件解锁密码"
+            autofocus
+          />
+          <button class="primary-button" type="submit">解锁</button>
+        </form>
+        <p v-if="unlockError" class="settings-error">{{ unlockError }}</p>
       </div>
     </div>
   </div>

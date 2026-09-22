@@ -1,0 +1,144 @@
+name: Build test version
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: gist-manager-pre-release
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.meta.outputs.should_build }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: meta
+        name: Resolve test version
+        shell: bash
+        run: |
+          sleep 15
+          git fetch --force --tags origin
+          COMMIT_TAG=$(git tag --points-at "$GITHUB_SHA" | grep -v '^pre-release$' | head -n 1 || true)
+          if [[ -n "$COMMIT_TAG" ]]; then
+            echo "Commit already has release tag $COMMIT_TAG; skipping test build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE_VERSION=$(node -p "require('./package.json').version.split('-')[0]")
+          if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid package version: $BASE_VERSION"
+            exit 1
+          fi
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+          VERSION="${MAJOR}.${MINOR}.$((10#$PATCH + 1))-beta.${GITHUB_SHA::7}"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare rolling pre-release
+        if: steps.meta.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa pre-release -m "pre-release" "$GITHUB_SHA"
+          git push origin +refs/tags/pre-release
+
+          if gh release view pre-release >/dev/null 2>&1; then
+            gh release edit pre-release --draft --prerelease --title "Test version $VERSION"
+          else
+            gh release create pre-release --draft --prerelease --verify-tag --title "Test version $VERSION" --generate-notes
+          fi
+
+          release_id=$(gh release view pre-release --json databaseId --jq '.databaseId')
+          gh api "repos/${{ github.repository }}/releases/$release_id/assets?per_page=100" --paginate --jq '.[].id' |
+            while read -r asset_id; do
+              gh api --method DELETE "repos/${{ github.repository }}/releases/assets/$asset_id"
+            done
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
+    runs-on: ${{ matrix.os }}
+    name: test-${{ matrix.platform }}-x64-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+
+      - name: Set package version
+        shell: bash
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix client
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Package Windows
+        if: matrix.platform == 'win'
+        shell: bash
+        run: npx electron-builder --win --publish never
+
+      - name: Package macOS
+        if: matrix.platform == 'mac'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        shell: bash
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload test assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          assets=(release/*.exe release/*.dmg release/*.zip release/*.yml release/*.blockmap)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No package was produced"
+            exit 1
+          fi
+          gh release upload pre-release "${assets[@]}" --clobber
+
+  publish:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish rolling pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit pre-release --draft=false --prerelease

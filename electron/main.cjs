@@ -1,6 +1,8 @@
 const { app, BrowserWindow, clipboard, ipcMain, Menu, shell } = require('electron')
 const path = require('node:path')
 const gistService = require('./gist-service.cjs')
+const securityService = require('./security-service.cjs')
+const updateService = require('./update-service.cjs')
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
 
@@ -36,6 +38,22 @@ async function createWindow() {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
+  securityService.initialize()
+  updateService.initialize()
+
+  ipcMain.handle('security-state', () => securityService.getState())
+  ipcMain.handle('security-configure', (_, options) => securityService.configure(options))
+  ipcMain.handle('security-lock', () => securityService.lock())
+  ipcMain.handle('security-unlock-password', (_, password) => securityService.unlockWithPassword(password))
+  ipcMain.handle('security-unlock-biometric', () => securityService.unlockWithBiometric())
+  ipcMain.handle('security-load-token', () => securityService.loadToken())
+  ipcMain.handle('security-save-token', (_, token) => securityService.saveToken(token))
+  ipcMain.handle('security-clear-token', () => securityService.clearToken())
+  ipcMain.handle('update-state', () => updateService.getState())
+  ipcMain.handle('update-check', () => updateService.checkForUpdates())
+  ipcMain.handle('update-download', () => updateService.downloadUpdate())
+  ipcMain.handle('update-install', () => updateService.installUpdate())
+  ipcMain.handle('update-set-channel', (_, channel) => updateService.setChannel(channel))
 
   ipcMain.handle('open-external', async (_, url) => {
     if (!url) {
@@ -56,6 +74,10 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('gist-api', async (_, request = {}) => {
+    if (securityService.isLocked()) {
+      throw new Error('应用尚未解锁。')
+    }
+
     const { action, token, gistId, payload, params } = request
 
     try {
@@ -84,6 +106,12 @@ app.whenReady().then(() => {
     console.error(error)
     app.quit()
   })
+
+  if (app.isPackaged) {
+    setTimeout(() => {
+      updateService.checkForUpdates().catch((error) => console.error('自动检查更新失败：', error))
+    }, 8_000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

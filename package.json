@@ -8,7 +8,10 @@
     "dev:desktop": "concurrently -k \"npm run dev:client\" \"wait-on http://127.0.0.1:5173 && set ELECTRON_RENDERER_URL=http://127.0.0.1:5173&& electron .\"",
     "desktop": "electron .",
     "build": "npm --prefix client run build",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "test:security": "electron test/security-service.test.cjs",
+    "test:update": "electron test/update-service.test.cjs",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "build": {
     "appId": "com.perzikkop.gist-manager",
@@ -26,23 +29,56 @@
     "extraMetadata": {
       "main": "electron/main.cjs"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Oranjekop",
+        "repo": "GistManager"
+      }
+    ],
     "asar": true,
+    "asarUnpack": [
+      "electron/windows-hello.ps1"
+    ],
     "win": {
       "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
       "icon": "build/icon.ico"
     },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "GistManager-${version}-${arch}.${ext}"
+    },
     "nsis": {
+      "buildUniversalInstaller": false,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "GistManager-Setup-${version}.exe",
+      "artifactName": "GistManager-Setup-${version}-${arch}.${ext}",
       "shortcutName": "Gist管理器",
       "uninstallerIcon": "build/icon.ico",
       "include": "build/nsis-shortcuts.nsh"
@@ -53,5 +89,8 @@
     "electron": "^41.1.0",
     "electron-builder": "^26.8.1",
     "wait-on": "^9.0.4"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }
