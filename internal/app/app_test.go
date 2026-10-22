@@ -238,6 +238,8 @@ func snapshot(t *testing.T, tt *ui.Tester, name string) {
 
 func TestUpdateChannelUI(t *testing.T) {
 	a := fixtureApp(t)
+	opened := ""
+	a.openURL = func(location string) error { opened = location; return nil }
 	tt := ui.NewTester(a.View, 1500, 940)
 	click(t, tt, "检查更新")
 	if !a.updateOpen || a.updateState.Status != "manual" {
@@ -246,6 +248,10 @@ func TestUpdateChannelUI(t *testing.T) {
 	click(t, tt, "测试版")
 	if a.Updates.State().Channel != "beta" {
 		t.Fatal("channel UI not persisted")
+	}
+	click(t, tt, "前往 GitHub 下载")
+	if opened != "https://github.com/Oranjekop/GistManager/releases/tag/pre-release" {
+		t.Fatal("download page did not follow the selected update channel", opened)
 	}
 	click(t, tt, "关闭")
 	if a.updateOpen {

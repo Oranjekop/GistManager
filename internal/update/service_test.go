@@ -210,3 +210,46 @@ func TestExplicitChannelSwitchesAndDowngrade(t *testing.T) {
 		})
 	}
 }
+
+func TestInstallerOnlyReleases(t *testing.T) {
+	for _, test := range []struct {
+		current, tag, name, channel, status, available string
+	}{
+		{"1.0.0", "v1.0.0", "v1.0.0", "stable", "latest", ""},
+		{"1.0.0", "v1.0.1", "v1.0.1", "stable", "manual", "1.0.1"},
+		{"1.0.1", "v1.0.0", "v1.0.0", "stable", "latest", ""},
+		{"1.0.0-beta.1", "v1.0.0", "v1.0.0", "stable", "manual", "1.0.0"},
+		{"1.0.0", "pre-release", "v1.0.0-beta.2.abc", "beta", "manual", "1.0.0-beta.2.abc"},
+		{"1.0.0-beta.2.abc", "pre-release", "v1.0.0-beta.2.abc", "beta", "latest", ""},
+	} {
+		t.Run(test.current+"_to_"+test.name, func(t *testing.T) {
+			_, key := signedFixture(t, []byte("unused"), "1.0.0")
+			s := New(t.TempDir(), test.current)
+			s.Key = key
+			if err := s.SetChannel(test.channel); err != nil {
+				t.Fatal(err)
+			}
+			s.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+				expected := "/releases/latest"
+				if test.channel == "beta" {
+					expected = "/releases/tags/pre-release"
+				}
+				if !strings.HasSuffix(r.URL.Path, expected) {
+					t.Fatal("unexpected update request", r.URL)
+				}
+				data, _ := json.Marshal(map[string]any{"tag_name": test.tag, "name": test.name, "assets": []any{}})
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data))}, nil
+			})
+			if err := s.Check(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			state := s.State()
+			if state.Status != test.status || state.Available != test.available {
+				t.Fatal(state)
+			}
+			if err := s.Download(context.Background(), nil); err == nil {
+				t.Fatal("installer-only releases must use the GitHub download page")
+			}
+		})
+	}
+}

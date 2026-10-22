@@ -83,56 +83,15 @@ jobs:
           - { os: macos-15-intel, platform: darwin/amd64, target: darwin-amd64 }
           - { os: macos-15, platform: darwin/arm64, target: darwin-arm64 }
     runs-on: ${{ matrix.os }}
-    env:
-      GIST_UPDATE_PRIVATE_KEY: ${{ secrets.GIST_UPDATE_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-      - name: Require update signing key
-        shell: bash
-        run: |
-          if [[ -z "$GIST_UPDATE_PRIVATE_KEY" ]]; then
-            echo 'Configure GIST_UPDATE_PRIVATE_KEY with the private key matching resources/update-public.key.'
-            exit 1
-          fi
-      - name: Import macOS certificate
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: |
-          if [[ -z "$CSC_LINK" ]]; then
-            echo 'MACOS_IDENTITY=-' >> "$GITHUB_ENV"
-            exit 0
-          fi
-          CERT="$RUNNER_TEMP/developer.p12"
-          if [[ "$CSC_LINK" == https://* ]]; then
-            curl --fail --location "$CSC_LINK" --output "$CERT"
-          else
-            printf '%s' "$CSC_LINK" | base64 --decode > "$CERT"
-          fi
-          KEYCHAIN="$RUNNER_TEMP/native-signing.keychain-db"
-          PASSWORD=$(openssl rand -hex 24)
-          echo "::add-mask::$PASSWORD"
-          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
-          security import "$CERT" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -k "$PASSWORD" "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN"
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)
-          [[ -n "$IDENTITY" ]] || exit 1
-          echo "MACOS_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - name: Build native application and installer
         shell: bash
-        run: |
-          ARGS=()
-          if [[ "$RUNNER_OS" == macOS ]]; then ARGS=(-sign "$MACOS_IDENTITY"); fi
-          go run ./cmd/release build -platform '${{ matrix.platform }}' -version '${{ needs.prepare.outputs.version }}' "${ARGS[@]}"
+        run: go run ./cmd/release build -platform '${{ matrix.platform }}' -version '${{ needs.prepare.outputs.version }}'
       - name: Verify macOS bundle
         if: runner.os == 'macOS'
         shell: bash
@@ -148,23 +107,9 @@ jobs:
           if [[ "$TARGET" == darwin-arm64 ]]; then ARCH=arm64; fi
           lipo -verify_arch "$ARCH" "$APP/Contents/MacOS/$EXECUTABLE"
           codesign --verify --deep --strict --verbose=2 "$APP"
-      - name: Notarize macOS artifacts
-        if: runner.os == 'macOS'
+      - name: Create portable archive
         shell: bash
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          if [[ "$MACOS_IDENTITY" == '-' || -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_PASSWORD" ]]; then exit 0; fi
-          for DMG in dist/${{ matrix.target }}/*.dmg; do
-            xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
-            xcrun stapler staple "$DMG"
-          done
-          xcrun stapler staple 'dist/${{ matrix.target }}/Gist管理器.app'
-      - name: Sign native update archive
-        shell: bash
-        run: go run ./cmd/release pack -platform '${{ matrix.target }}' -version '${{ needs.prepare.outputs.version }}' -tag '${{ needs.prepare.outputs.tag }}'
+        run: go run ./cmd/release pack -unsigned -platform '${{ matrix.target }}' -version '${{ needs.prepare.outputs.version }}' -tag '${{ needs.prepare.outputs.tag }}'
       - name: Collect and verify release assets
         shell: bash
         env:
@@ -183,29 +128,11 @@ jobs:
           cp "${INSTALLERS[0]}" "release/$DESTINATION"
           test -s "release/$DESTINATION"
           test -s "release/GistManager-$VERSION-$TARGET.zip"
-          test -s "release/native-update-$TARGET.json"
-      - name: Verify packaged Windows update
-        if: matrix.target == 'windows-amd64'
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          $env:GIST_TEST_BINARY = Join-Path $PWD 'dist/windows-amd64/Gist管理器.exe'
-          $env:GIST_TEST_FEED = Join-Path $PWD 'release/native-update-windows-amd64.json'
-          $env:GIST_TEST_ARCHIVE = Join-Path $PWD "release/GistManager-$env:VERSION-windows-amd64.zip"
-          go test . -run '^TestPackagedNativeUpdateHelper$' -count=1 -timeout 120s
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.target }}
           path: release/*
           if-no-files-found: error
-      - name: Remove temporary macOS keychain
-        if: always() && runner.os == 'macOS'
-        shell: bash
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/native-signing.keychain-db"
-          if [[ -f "$KEYCHAIN" ]]; then security delete-keychain "$KEYCHAIN"; fi
 
   publish:
     needs: [prepare, build]
@@ -232,13 +159,14 @@ jobs:
           PRERELEASE='${{ needs.prepare.outputs.prerelease }}'
           for TARGET in windows-amd64 windows-arm64 darwin-amd64 darwin-arm64; do
             test -s "release/GistManager-$VERSION-$TARGET.zip"
-            test -s "release/native-update-$TARGET.json"
             if [[ "$TARGET" == darwin-* ]]; then
               test -s "release/GistManager-$VERSION-$TARGET.dmg"
             else
               test -s "release/GistManager-Setup-$VERSION-$TARGET.exe"
             fi
           done
+          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 8
+          (cd release && sha256sum * > SHA256SUMS.txt)
           LATEST=true
           if [[ "$TAG" == pre-release ]]; then
             git tag --force pre-release "$GITHUB_SHA"

@@ -158,6 +158,7 @@ func pack(args []string) error {
 	platform := flags.String("platform", runtime.GOOS+"-"+runtime.GOARCH, "OS-architecture")
 	version := flags.String("version", "", "Release version")
 	tag := flags.String("tag", "", "GitHub release tag, pre-release for beta")
+	unsigned := flags.Bool("unsigned", false, "Create a portable ZIP without an automatic-update manifest")
 	keyPath := flags.String("key", ".keys/update-private.key", "Private key path when not using GIST_UPDATE_PRIVATE_KEY")
 	source := flags.String("source", "", "App executable or .app directory")
 	out := flags.String("out", "release", "Artifacts output directory")
@@ -176,9 +177,13 @@ func pack(args []string) error {
 	if !regexp.MustCompile(`^(windows|darwin|linux)-(amd64|arm64)$`).MatchString(*platform) {
 		return errors.New("invalid platform")
 	}
-	key, err := privateKey(*keyPath)
-	if err != nil {
-		return err
+	var key ed25519.PrivateKey
+	var err error
+	if !*unsigned {
+		key, err = privateKey(*keyPath)
+		if err != nil {
+			return err
+		}
 	}
 	if *source == "" {
 		name := "Gist管理器.exe"
@@ -205,6 +210,14 @@ func pack(args []string) error {
 	if err = archiveApp(*source, archive, root); err != nil {
 		return err
 	}
+	feed := filepath.Join(*out, "native-update-"+*platform+".json")
+	if *unsigned {
+		if err = os.Remove(feed); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		fmt.Printf("Packed %s.\n", archive)
+		return nil
+	}
 	input, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -226,7 +239,7 @@ func pack(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(*out, "native-update-"+*platform+".json"), append(data, '\n'), 0o644); err != nil {
+	if err = os.WriteFile(feed, append(data, '\n'), 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("Signed %s (%d bytes).\n", archive, size)

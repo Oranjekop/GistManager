@@ -15,7 +15,7 @@
 
 Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
 
-macOS 包在未配置 Developer ID 证书和公证凭据时使用 ad-hoc 签名，首次打开可能需要在“系统设置 → 隐私与安全性”中允许。
+macOS 包使用 ad-hoc 签名，首次打开可能需要在“系统设置 → 隐私与安全性”中允许。
 
 ## 使用
 
@@ -37,7 +37,9 @@ macOS 包在未配置 Developer ID 证书和公证凭据时使用 ad-hoc 签名�
 
 Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后，可通过软件密码或 Windows Hello / PIN、Touch ID 解锁；系统身份验证是否可用取决于设备配置。锁定会清空工作区并取消进行中的请求。切换、刷新、锁定及退出前会提示处理未保存的修改。
 
-应用会自动检查更新，也可在界面中手动检查。下载时验证 Ed25519 签名、平台、文件大小和 SHA-256，完成后选择“重启并安装”。安装器和 DMG 用于首次安装，Release 中的 ZIP 与 `native-update-<系统>-<架构>.json` 用于应用内更新。
+应用会自动检查更新，也可在界面中手动检查。发现新版本后，点击“前往 GitHub 下载”，使用对应系统的安装包更新。正式版和测试版分别打开各自的下载页面。
+
+Release 同时提供安装器、DMG、便携 ZIP 和 `SHA256SUMS.txt` 校验文件。Windows 可解压 ZIP 后运行程序；macOS 可解压 ZIP 后将应用移入“应用程序”。
 
 设置保存在系统应用数据目录下的 `Gist管理器/` 中。`--data-dir <目录>` 可指定独立数据目录，开发热重载使用 `Gist管理器-dev/`。
 
@@ -70,23 +72,17 @@ go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.0
 
 输出位于 `dist/<系统>-<架构>/`。Windows 产出 NSIS 安装器；macOS 的应用签名与 DMG 打包需要在 Mac 上执行。
 
-[发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及更新包：
+[发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及便携 ZIP。工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布产物，无需配置私钥或额外 Secret。
 
 - 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.0`。
 - 测试版：推送 `main`，发布包含运行编号和提交哈希的滚动 `pre-release`；同一提交已有正式标签时跳过。
 - 全部测试、构建和产物校验通过后，才公开 Release。
 
-| Actions Secret | 用途 |
-| --- | --- |
-| `GIST_UPDATE_PRIVATE_KEY` | 必填；与 `resources/update-public.key` 匹配的 Base64 Ed25519 私钥，用于签名更新包 |
-| `CSC_LINK`、`CSC_KEY_PASSWORD` | 可选；macOS Developer ID 证书及密码，证书支持 Base64 或 HTTPS 地址 |
-| `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_PASSWORD` | 可选；与 Developer ID 证书一起使用，提交 Apple 公证并附加凭证 |
-
-私钥应安全备份，存放于已被 Git 忽略的 `.keys/update-private.key`。新项目可在公私钥均未配置时执行 `go run ./cmd/release keygen` 生成密钥；签名工具会校验公私钥是否匹配。
+本地生成便携 ZIP：
 
 ```sh
-go run ./cmd/release pack -platform windows-amd64 -version 1.0.0
-go run ./cmd/release pack -platform darwin-arm64 -version 1.0.0
+go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.0
+go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.0
 ```
 
 ## 结构
@@ -97,7 +93,7 @@ mygo.json            版本、图标、打包配置
 internal/app/        原生界面、编辑器、工作区与交互测试
 internal/gist/       GitHub HTTP 客户端、分页与 Raw 内容
 internal/security/   凭据库、密码与系统身份验证
-internal/update/     更新通道、签名验证、下载与安装
-cmd/release/         构建、生成密钥、签名更新包
-resources/           图标与更新公钥
+internal/update/     更新检查、下载页面与安装处理
+cmd/release/         构建与打包工具
+resources/           应用资源
 ```

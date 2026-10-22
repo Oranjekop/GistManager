@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -90,6 +91,13 @@ func (s *Service) State() State {
 	return s.state
 }
 
+func (s *Service) DownloadPage() string {
+	if s.State().Channel == "beta" {
+		return "https://github.com/" + Repository + "/releases/tag/pre-release"
+	}
+	return "https://github.com/" + Repository + "/releases/latest"
+}
+
 func (s *Service) SetChannel(channel string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -138,7 +146,7 @@ func (s *Service) Check(ctx context.Context) (err error) {
 	defer func() { s.finish(err) }()
 	if _, err = ParsePublicKey(s.Key); err != nil {
 		s.mu.Lock()
-		s.state.Status, s.state.Message = "manual", "此构建未配置更新签名公钥，可从 GitHub 下载并安装新版"
+		s.state.Status, s.state.Message = "manual", "请前往 GitHub 下载并安装更新"
 		s.mu.Unlock()
 		return nil
 	}
@@ -152,7 +160,9 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		return err
 	}
 	var release struct {
-		Assets []struct {
+		TagName string `json:"tag_name"`
+		Name    string `json:"name"`
+		Assets  []struct {
 			Name string `json:"name"`
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
@@ -168,7 +178,25 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		}
 	}
 	if feedURL == "" {
-		return errors.New("该版本尚未提供此平台的原生更新包，请前往 GitHub 查看")
+		version := strings.TrimPrefix(release.TagName, "v")
+		if release.TagName == "pre-release" {
+			version = strings.TrimPrefix(release.Name, "v")
+		}
+		knownVersion := regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`).MatchString(version)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.manifest, s.envelope = Manifest{}, Envelope{}
+		s.state.Available = ""
+		if knownVersion && !isUpdateAvailable(current, version) {
+			s.state.Status, s.state.Message = "latest", "当前已是最新版本"
+			return nil
+		}
+		s.state.Status, s.state.Message = "manual", "请前往 GitHub 下载并安装更新"
+		if knownVersion {
+			s.state.Available = version
+			s.state.Message = "发现新版本 " + version + "，请前往 GitHub 下载并安装"
+		}
+		return nil
 	}
 	data, err = s.get(ctx, feedURL, 2<<20)
 	if err != nil {
@@ -185,13 +213,7 @@ func (s *Service) Check(ctx context.Context) (err error) {
 	if current.Channel == "stable" && strings.Contains(manifest.Version, "-") {
 		return errors.New("正式版通道返回了测试版本")
 	}
-	available := Compare(manifest.Version, current.Current) > 0
-	if current.Channel == "beta" && !strings.Contains(current.Current, "-") {
-		available = manifest.Version != current.Current
-	}
-	if current.Channel == "stable" && strings.Contains(current.Current, "-") && manifest.Version != current.Current {
-		available = true
-	}
+	available := isUpdateAvailable(current, manifest.Version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !available {
@@ -201,6 +223,16 @@ func (s *Service) Check(ctx context.Context) (err error) {
 	s.manifest, s.envelope = manifest, envelope
 	s.state.Status, s.state.Available, s.state.Message = "available", manifest.Version, "发现新版本 "+manifest.Version
 	return nil
+}
+
+func isUpdateAvailable(current State, candidate string) bool {
+	if current.Channel == "beta" && !strings.Contains(current.Current, "-") {
+		return candidate != current.Current
+	}
+	if current.Channel == "stable" && strings.Contains(current.Current, "-") {
+		return candidate != current.Current
+	}
+	return Compare(candidate, current.Current) > 0
 }
 
 func ParsePublicKey(key string) (ed25519.PublicKey, error) {

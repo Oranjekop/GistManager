@@ -60,3 +60,32 @@ func TestSigningAndNativeArchive(t *testing.T) {
 		t.Fatal("mismatched signing key accepted")
 	}
 }
+
+func TestPortableArchiveWithoutSigningKey(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("GIST_UPDATE_PRIVATE_KEY", "")
+	if err := os.WriteFile("application.exe", []byte("portable fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir("release", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	feed := filepath.Join("release", "native-update-windows-amd64.json")
+	if err := os.WriteFile(feed, []byte("stale manifest"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pack([]string{"-unsigned", "-platform", "windows-amd64", "-version", "1.0.0", "-source", "application.exe"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(feed); !os.IsNotExist(err) {
+		t.Fatal("portable-only release must not retain a stale update manifest", err)
+	}
+	archive, err := zip.OpenReader("release/GistManager-1.0.0-windows-amd64.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	if len(archive.File) != 1 || archive.File[0].Name != "GistManager.exe" {
+		t.Fatal("unexpected portable archive layout")
+	}
+}

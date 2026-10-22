@@ -514,7 +514,7 @@ func (a *App) updateDialog(c *ui.Context) {
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if a.updateState.Status == "error" {
 					if ui.Button(c, "在 GitHub 查看").Clicked() {
-						a.open("https://github.com/Oranjekop/GistManager/releases")
+						a.open(a.Updates.DownloadPage())
 					}
 				}
 				if ui.Button(c, "关闭").Clicked() {
@@ -530,7 +530,7 @@ func (a *App) updateDialog(c *ui.Context) {
 					}
 				} else if a.updateState.Status == "manual" {
 					if ui.PrimaryButton(c, "前往 GitHub 下载").Clicked() {
-						a.open("https://github.com/Oranjekop/GistManager/releases")
+						a.open(a.Updates.DownloadPage())
 					}
 				} else if ui.PrimaryButton(c, "检查更新").Disabled(a.updateBusy).Clicked() {
 					a.checkUpdates(true)

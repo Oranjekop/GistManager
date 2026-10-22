@@ -621,7 +621,7 @@ func (a *App) checkUpdates(show bool) {
 		state := a.Updates.State()
 		a.post(func() {
 			a.updateBusy, a.updateState = false, state
-			if state.Status == "available" {
+			if state.Status == "available" || state.Status == "manual" && state.Available != "" {
 				a.updateOpen = true
 			}
 		})
