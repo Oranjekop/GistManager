@@ -35,10 +35,13 @@ func (a *App) View(c *ui.Context) {
 		a.statusbar(c)
 	})
 	if !a.Security.State().Locked {
-		a.settingsDialog(c)
+		if !a.recoveryOpen {
+			a.settingsDialog(c)
+		}
 		a.tokenDialog(c)
 		a.renameDialog(c)
 	}
+	a.passwordRecoveryDialog(c)
 	a.updateDialog(c)
 	if result := ui.AlertDialog(c, &a.confirmOpen, a.confirmTitle, a.confirmMessage, "取消", a.confirmAction); result == 1 {
 		fn := a.confirmed
@@ -92,7 +95,7 @@ func (a *App) header(c *ui.Context) {
 			if ui.Button(c, "系统设置").Disabled(a.settingsBusy).Clicked() {
 				a.openSettings()
 			}
-			if ui.Button(c, "立即锁定").Clicked() {
+			if ui.Button(c, "立即锁定").Disabled(a.settingsBusy || a.recoveryBusy).Clicked() {
 				a.lock()
 			}
 		}
@@ -132,7 +135,7 @@ func (a *App) welcome(c *ui.Context) {
 func (a *App) lockScreen(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Grow(1).FillWidth().Center().Padding(24).Children(func() {
-		ui.Column(c).Width(420).MaxWidthPercent(100).Gap(20).Padding(32).Radius(16).Border(1, t.Border).Children(func() {
+		ui.Column(c).Width(420).MaxWidthPercent(100).Gap(20).Padding(32).Radius(16).Border(1, t.Border).Label("解锁面板").Children(func() {
 			ui.Text(c, "工作区已锁定").FontSize(26).Bold()
 			ui.Text(c, "解锁后继续管理你的代码片段。").TextColor(t.TextMuted)
 			if legacyInput(c, &a.unlockPassword).Password().Placeholder("软件解锁密码").Label("软件解锁密码").Disabled(a.unlocking).Submitted() {
@@ -152,6 +155,11 @@ func (a *App) lockScreen(c *ui.Context) {
 			}
 			if a.unlocking {
 				ui.Progress(c, -1).Label("正在验证身份")
+			}
+			if a.biometricAvailable {
+				if ui.Button(c, "忘记密码").Disabled(a.unlocking || a.recoveryBusy).Clicked() {
+					a.openPasswordRecovery()
+				}
 			}
 		})
 	})
@@ -385,22 +393,40 @@ func (a *App) settingsDialog(c *ui.Context) {
 		ui.Column(c).Width(460).MaxWidthPercent(100).Gap(16).Children(func() {
 			ui.Text(c, "系统设置").FontSize(22).Bold()
 			ui.Text(c, "安全与解锁").Bold().TextColor(t.TextMuted)
-			ui.Checkbox(c, &a.settingsForm.LockEnabled, "启动时锁定应用").Disabled(a.settingsBusy)
-			ui.Checkbox(c, &a.settingsForm.BiometricEnabled, "启用系统身份验证").Disabled(a.settingsBusy || !a.biometricAvailable)
+			ui.Checkbox(c, &a.settingsForm.LockEnabled, "启动时锁定应用").Disabled(a.settingsBusy || a.settingsForm.ClearPassword)
+			ui.Checkbox(c, &a.settingsForm.BiometricEnabled, "启用系统身份验证").Disabled(a.settingsBusy || !a.biometricAvailable || !a.settingsForm.LockEnabled || a.settingsForm.ClearPassword)
 			if a.biometricLabel != "" {
 				ui.Text(c, a.biometricLabel).TextColor(t.TextMuted).FontSize(12)
 			}
 			if a.Security.State().HasPassword {
+				if ui.Checkbox(c, &a.settingsForm.ClearPassword, "清除程序密码").Disabled(a.settingsBusy).Changed() {
+					if a.settingsForm.ClearPassword {
+						a.settingsForm.NewPassword, a.confirmPassword = "", ""
+						a.settingsForm.LockEnabled, a.settingsForm.BiometricEnabled = false, false
+					} else {
+						state := a.Security.State()
+						a.settingsForm.LockEnabled, a.settingsForm.BiometricEnabled = state.LockEnabled, state.BiometricEnabled
+					}
+				}
 				ui.Field(c, "当前密码", func() {
 					legacyInput(c, &a.settingsForm.CurrentPassword).Password().Label("当前密码").Disabled(a.settingsBusy)
 				})
 			}
-			ui.Field(c, "新密码", func() {
-				legacyInput(c, &a.settingsForm.NewPassword).Password().Label("新密码").Placeholder("至少 6 位；留空则保留原密码").Disabled(a.settingsBusy)
-			})
-			ui.Field(c, "确认新密码", func() {
-				legacyInput(c, &a.confirmPassword).Password().Label("确认新密码").Disabled(a.settingsBusy)
-			})
+			if a.settingsForm.ClearPassword {
+				ui.Text(c, "输入当前密码后保存，将清除程序密码并关闭启动锁定。").FontSize(12).TextColor(t.TextMuted)
+				if a.biometricAvailable {
+					if ui.Button(c, "忘记密码？使用系统身份验证").Disabled(a.settingsBusy).Clicked() {
+						a.openPasswordRecovery()
+					}
+				}
+			} else {
+				ui.Field(c, "新密码", func() {
+					legacyInput(c, &a.settingsForm.NewPassword).Password().Label("新密码").Placeholder("至少 6 位；留空则保留原密码").Disabled(a.settingsBusy)
+				})
+				ui.Field(c, "确认新密码", func() {
+					legacyInput(c, &a.confirmPassword).Password().Label("确认新密码").Disabled(a.settingsBusy)
+				})
+			}
 			if a.settingsIssue != "" {
 				ui.Text(c, a.settingsIssue).TextColor(t.Danger)
 			}
@@ -420,6 +446,33 @@ func (a *App) settingsDialog(c *ui.Context) {
 	}
 	if !a.settingsOpen && !a.settingsBusy {
 		a.settingsForm.CurrentPassword, a.settingsForm.NewPassword, a.confirmPassword = "", "", ""
+	}
+}
+
+func (a *App) passwordRecoveryDialog(c *ui.Context) {
+	modal := ui.Modal(c, &a.recoveryOpen, func() {
+		ui.Column(c).Width(440).MaxWidthPercent(100).Gap(16).Children(func() {
+			ui.Text(c, "清除程序密码").Bold().FontSize(22)
+			ui.Text(c, "通过 "+a.biometricLabel+" 验证后，将清除程序密码并关闭启动锁定和自动身份验证。")
+			ui.Text(c, "GitHub Token 和 Gist 数据会保留。你可以稍后在设置中重新启用锁定。").FontSize(12).TextColor(c.Theme().TextMuted)
+			if a.recoveryIssue != "" {
+				ui.Text(c, a.recoveryIssue).TextColor(c.Theme().Danger)
+			}
+			if a.recoveryBusy {
+				ui.Progress(c, -1).Label("正在验证并清除密码")
+			}
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				if ui.Button(c, "取消").Disabled(a.recoveryBusy).Clicked() {
+					a.recoveryOpen = false
+				}
+				if ui.PrimaryButton(c, "验证身份并清除密码").Disabled(a.recoveryBusy).Clicked() {
+					a.recoverPassword()
+				}
+			})
+		})
+	}).Label("密码恢复对话框")
+	if modal.Dismissed() && a.recoveryBusy {
+		a.recoveryOpen = true
 	}
 }
 
@@ -477,7 +530,7 @@ func (a *App) renameDialog(c *ui.Context) {
 
 func (a *App) updateDialog(c *ui.Context) {
 	ui.Modal(c, &a.updateOpen, func() {
-		ui.Column(c).Width(440).Gap(16).Children(func() {
+		ui.Column(c).Width(440).MaxWidthPercent(100).Gap(16).Children(func() {
 			ui.Text(c, "软件更新").Bold().FontSize(22)
 			ui.Text(c, "当前版本 "+a.Version).TextColor(c.Theme().TextMuted)
 			ui.Row(c).Gap(8).Children(func() {
@@ -537,7 +590,7 @@ func (a *App) updateDialog(c *ui.Context) {
 				}
 			})
 		})
-	})
+	}).Label("软件更新对话框")
 }
 
 func relativeDate(value time.Time) string {

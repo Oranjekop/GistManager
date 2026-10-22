@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"image/png"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,13 @@ func fixtureApp(t *testing.T) *App {
 	}
 	updater := update.New(dir, "1.0.0")
 	updater.Key = ""
+	updater.HTTP.Transport = appRoundTrip(func(r *http.Request) (*http.Response, error) {
+		data := `{"tag_name":"v1.0.1","name":"v1.0.1"}`
+		if strings.HasSuffix(r.URL.Path, "/pre-release") {
+			data = `{"tag_name":"pre-release","name":"v1.0.1-beta.2.abc"}`
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(data))}, nil
+	})
 	a := New(NewDemoAPI(), secure, updater, "1.0.0", dir)
 	iconData, err := os.ReadFile("../../resources/icon.png")
 	if err != nil {
@@ -243,7 +252,7 @@ func TestUpdateChannelUI(t *testing.T) {
 	tt := ui.NewTester(a.View, 1500, 940)
 	click(t, tt, "检查更新")
 	if !a.updateOpen || a.updateState.Status != "manual" {
-		t.Fatal("unsigned development build should offer manual download")
+		t.Fatal("installer-only release should offer manual download")
 	}
 	click(t, tt, "测试版")
 	if a.Updates.State().Channel != "beta" {

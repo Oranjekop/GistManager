@@ -200,3 +200,158 @@ func TestLegacyDirectoryImportDoesNotOverrideOrDelete(t *testing.T) {
 		t.Fatal("existing native state overwritten")
 	}
 }
+
+func TestClearPasswordRequiresAuthenticationAndPersists(t *testing.T) {
+	for _, biometric := range []bool{false, true} {
+		t.Run(map[bool]string{false: "current-password", true: "system-verification"}[biometric], func(t *testing.T) {
+			ctx, dir, vault := context.Background(), t.TempDir(), &fakeVault{token: "keep-token"}
+			s, err := Open(dir, vault, fakeBiometric{true, true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = s.Configure(ctx, Options{NewPassword: "original-password", LockEnabled: true, BiometricEnabled: biometric}); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "security.json")
+			before, _ := os.ReadFile(path)
+			for _, options := range []Options{
+				{ClearPassword: true},
+				{ClearPassword: true, CurrentPassword: "wrong"},
+				{ClearPassword: true, CurrentPassword: "original-password", NewPassword: "new-password"},
+			} {
+				if err = s.Configure(ctx, options); err == nil {
+					t.Fatal("password cleared without valid authentication")
+				}
+				after, _ := os.ReadFile(path)
+				if string(after) != string(before) {
+					t.Fatal("failed clearing modified persisted settings")
+				}
+			}
+			if biometric {
+				s.Lock()
+				// Recovery must work without knowing the password while locked.
+				err = s.ClearPasswordWithBiometric(ctx, 0)
+			} else {
+				err = s.Configure(ctx, Options{ClearPassword: true, CurrentPassword: "original-password", LockEnabled: true, BiometricEnabled: true})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(dir, vault, fakeBiometric{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state := s.State(); state.Locked || state.HasPassword || state.LockEnabled || state.BiometricEnabled {
+				t.Fatal("clearing left a lock or password", state)
+			}
+			if token, err := s.Token(); err != nil || token != "keep-token" {
+				t.Fatal("clearing removed the GitHub token", token, err)
+			}
+			if data, err := os.ReadFile(path); err != nil || strings.Contains(string(data), "original-password") {
+				t.Fatal("plaintext password persisted", err)
+			}
+		})
+	}
+}
+
+func TestRecoveryCancellationAndUnavailableBiometricsKeepPassword(t *testing.T) {
+	for _, biometric := range []fakeBiometric{{true, false}, {false, true}} {
+		ctx, vault := context.Background(), &fakeVault{token: "keep-token"}
+		s, _ := Open(t.TempDir(), vault, biometric)
+		if err := s.Configure(ctx, Options{NewPassword: "original-password", LockEnabled: true}); err != nil {
+			t.Fatal(err)
+		}
+		s.Lock()
+		before, _ := os.ReadFile(s.path)
+		if err := s.ClearPasswordWithBiometric(ctx, 0); err == nil {
+			t.Fatal("unauthenticated recovery succeeded")
+		}
+		after, _ := os.ReadFile(s.path)
+		if string(after) != string(before) || !s.State().Locked || !s.State().HasPassword {
+			t.Fatal("failed recovery modified security state")
+		}
+		if err := s.Unlock("original-password"); err != nil || vault.token != "keep-token" {
+			t.Fatal("failed recovery lost the original password or token", err)
+		}
+	}
+}
+
+type windowBiometric struct {
+	owner  uintptr
+	verify func()
+}
+
+func (*windowBiometric) Available(context.Context) (bool, string) { return true, "fixture biometric" }
+func (*windowBiometric) Verify(context.Context) error {
+	return errors.New("window owner was omitted")
+}
+func (b *windowBiometric) VerifyForWindow(_ context.Context, owner uintptr) error {
+	b.owner = owner
+	if b.verify != nil {
+		b.verify()
+	}
+	return nil
+}
+
+func TestAuthenticationUsesWindowOwnerAndRejectsStaleProof(t *testing.T) {
+	ctx := context.Background()
+	biometric := &windowBiometric{}
+	s, _ := Open(t.TempDir(), &fakeVault{}, biometric)
+	if err := s.Configure(ctx, Options{NewPassword: "original-password", LockEnabled: true, BiometricEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.Lock()
+	if err := s.UnlockBiometricForWindow(ctx, 123); err != nil || biometric.owner != 123 {
+		t.Fatal("biometric verification omitted the parent window", err, biometric.owner)
+	}
+	s.Lock()
+	biometric.verify = func() { s.Lock() }
+	if err := s.UnlockBiometricForWindow(ctx, 123); err == nil || !s.State().Locked {
+		t.Fatal("a previous lock cycle's verification unlocked the app")
+	}
+	if err := s.ClearPasswordWithBiometric(ctx, 456); err == nil || !s.State().HasPassword || biometric.owner != 456 {
+		t.Fatal("stale verification cleared the password", err)
+	}
+	biometric.verify = nil
+	// Recovery also works if automatic OS authentication was not enabled.
+	if err := s.Unlock("original-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Configure(ctx, Options{CurrentPassword: "original-password", LockEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.Lock()
+	if err := s.ClearPasswordWithBiometric(ctx, 456); err != nil || s.State().HasPassword {
+		t.Fatal("system-verified recovery depended on automatic authentication", err)
+	}
+}
+
+func TestCancelledRecoveryCannotUseSuccessfulBiometricResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	biometric := &windowBiometric{verify: cancel}
+	s, _ := Open(t.TempDir(), &fakeVault{}, biometric)
+	if err := s.Configure(context.Background(), Options{NewPassword: "original-password", LockEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.Lock()
+	if err := s.ClearPasswordWithBiometric(ctx, 1); !errors.Is(err, context.Canceled) || !s.State().Locked || !s.State().HasPassword {
+		t.Fatal("cancelled verification cleared security state", err)
+	}
+}
+
+func TestFailedRecoveryPersistenceKeepsSecurityState(t *testing.T) {
+	ctx, dir := context.Background(), t.TempDir()
+	s, _ := Open(dir, &fakeVault{token: "keep-token"}, fakeBiometric{true, true})
+	if err := s.Configure(ctx, Options{NewPassword: "original-password", LockEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.Lock()
+	blocked := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blocked, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.path = filepath.Join(blocked, "security.json")
+	if err := s.ClearPasswordWithBiometric(ctx, 0); err == nil || !s.State().Locked || !s.State().HasPassword {
+		t.Fatal("failed persistence cleared the in-memory password", err)
+	}
+}

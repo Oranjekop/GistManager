@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -24,7 +23,7 @@ import (
 	"github.com/Oranjekop/GistManager/internal/storage"
 )
 
-// PublicKey is set at build time. Builds without a key offer manual updates.
+// PublicKey optionally enables signed manifests for custom release feeds.
 var PublicKey string
 
 const Repository = "Oranjekop/GistManager"
@@ -63,12 +62,13 @@ type Service struct {
 	state    State
 	manifest Manifest
 	envelope Envelope
+	tag      string
 	archive  string
 	busy     bool
 }
 
 func New(dir, version string) *Service {
-	s := &Service{HTTP: &http.Client{Timeout: 90 * time.Second}, API: "https://api.github.com/repos/" + Repository,
+	s := &Service{HTTP: &http.Client{Timeout: 15 * time.Minute}, API: githubAPI,
 		Key: PublicKey, Platform: runtime.GOOS + "-" + runtime.GOARCH, path: filepath.Join(dir, "updater.json")}
 	s.state = State{Status: "idle", Channel: "stable", Current: version}
 	if strings.Contains(version, "-") {
@@ -111,12 +111,18 @@ func (s *Service) SetChannel(channel string) error {
 		return err
 	}
 	s.state = State{Status: "idle", Current: s.state.Current, Channel: channel}
-	s.manifest, s.envelope = Manifest{}, Envelope{}
+	s.discardUpdate()
+	return nil
+}
+
+// Called with mu held and no download in progress.
+func (s *Service) discardUpdate() {
+	s.manifest, s.envelope, s.tag = Manifest{}, Envelope{}, ""
 	if s.archive != "" {
 		_ = os.Remove(s.archive)
 	}
 	s.archive = ""
-	return nil
+	s.state.Available, s.state.Downloaded, s.state.Total = "", 0, 0
 }
 
 func (s *Service) begin(status string) error {
@@ -144,61 +150,57 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		return err
 	}
 	defer func() { s.finish(err) }()
-	if _, err = ParsePublicKey(s.Key); err != nil {
-		s.mu.Lock()
-		s.state.Status, s.state.Message = "manual", "请前往 GitHub 下载并安装更新"
-		s.mu.Unlock()
-		return nil
+	s.mu.Lock()
+	s.discardUpdate()
+	s.mu.Unlock()
+	if strings.TrimSpace(s.Key) != "" {
+		if _, err = ParsePublicKey(s.Key); err != nil {
+			return err
+		}
 	}
 	current := s.State()
 	endpoint := s.API + "/releases/latest"
 	if current.Channel == "beta" {
 		endpoint = s.API + "/releases/tags/pre-release"
 	}
-	data, err := s.get(ctx, endpoint, 2<<20)
+	release, err := s.release(ctx, endpoint)
 	if err != nil {
-		return err
-	}
-	var release struct {
-		TagName string `json:"tag_name"`
-		Name    string `json:"name"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err = json.Unmarshal(data, &release); err != nil {
 		return err
 	}
 	feedURL := ""
 	for _, asset := range release.Assets {
-		if asset.Name == "native-update-"+s.Platform+".json" {
+		if strings.TrimSpace(s.Key) != "" && asset.Name == "native-update-"+s.Platform+".json" {
 			feedURL = asset.URL
 			break
 		}
 	}
 	if feedURL == "" {
-		version := strings.TrimPrefix(release.TagName, "v")
-		if release.TagName == "pre-release" {
-			version = strings.TrimPrefix(release.Name, "v")
+		version, versionErr := release.version(current.Channel)
+		if versionErr != nil {
+			return versionErr
 		}
-		knownVersion := regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`).MatchString(version)
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.manifest, s.envelope = Manifest{}, Envelope{}
-		s.state.Available = ""
-		if knownVersion && !isUpdateAvailable(current, version) {
+		if !isUpdateAvailable(current, version) {
+			s.mu.Lock()
 			s.state.Status, s.state.Message = "latest", "当前已是最新版本"
+			s.mu.Unlock()
 			return nil
 		}
-		s.state.Status, s.state.Message = "manual", "请前往 GitHub 下载并安装更新"
-		if knownVersion {
-			s.state.Available = version
-			s.state.Message = "发现新版本 " + version + "，请前往 GitHub 下载并安装"
+		manifest, manifestErr := s.releaseManifest(ctx, release, version)
+		if manifestErr != nil && !errors.Is(manifestErr, errNoArchive) {
+			return manifestErr
 		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.state.Available = version
+		if errors.Is(manifestErr, errNoArchive) {
+			s.state.Status, s.state.Message = "manual", "发现新版本 "+version+"，请前往 GitHub 下载并安装"
+			return nil
+		}
+		s.manifest, s.tag = manifest, release.TagName
+		s.state.Status, s.state.Message = "available", "发现新版本 "+version+"，可以下载并重启安装"
 		return nil
 	}
-	data, err = s.get(ctx, feedURL, 2<<20)
+	data, err := s.get(ctx, feedURL, 2<<20)
 	if err != nil {
 		return err
 	}
@@ -270,6 +272,7 @@ func (s *Service) get(ctx context.Context, location string, limit int64) ([]byte
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "GistManager-Native")
+	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -300,6 +303,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 	if err != nil {
 		return err
 	}
+	req.Header.Set("User-Agent", "GistManager-Native")
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return err
@@ -363,7 +367,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 	}
 	s.mu.Lock()
 	s.archive, s.state.Status, s.state.Downloaded = f.Name(), "downloaded", written
-	s.state.Message = "更新已下载并通过签名校验，可以重启安装"
+	s.state.Message = "更新已下载并通过 SHA-256 校验，可以重启安装"
 	s.mu.Unlock()
 	return nil
 }

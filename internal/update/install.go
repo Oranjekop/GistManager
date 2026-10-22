@@ -2,12 +2,15 @@ package update
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +26,8 @@ type Plan struct {
 	Target    string   `json:"target"`
 	Archive   string   `json:"archive"`
 	Envelope  Envelope `json:"envelope"`
+	Manifest  Manifest `json:"manifest,omitempty"`
+	Tag       string   `json:"releaseTag,omitempty"`
 }
 
 // StartInstaller runs a copy of this native executable, so Windows can replace
@@ -41,16 +46,28 @@ func (s *Service) StartInstaller() error {
 	if err != nil {
 		return err
 	}
+	probe, err := os.CreateTemp(filepath.Dir(target), ".gist-update-check-*")
+	if err != nil {
+		return fmt.Errorf("应用目录不可写，请使用安装包手动更新: %w", err)
+	}
+	_ = probe.Close()
+	_ = os.Remove(probe.Name())
 	dir, err := os.MkdirTemp(filepath.Dir(s.path), "update-helper-*")
 	if err != nil {
 		return err
 	}
+	started := false
+	defer func() {
+		if !started {
+			_ = os.RemoveAll(dir)
+		}
+	}()
 	helper := filepath.Join(dir, filepath.Base(executable))
 	if err = copyFile(executable, helper, 0o700); err != nil {
 		return err
 	}
 	plan := filepath.Join(dir, "plan.json")
-	if err = storage.WriteJSON(plan, Plan{ParentPID: os.Getpid(), Target: target, Archive: s.archive, Envelope: s.envelope}); err != nil {
+	if err = storage.WriteJSON(plan, Plan{ParentPID: os.Getpid(), Target: target, Archive: s.archive, Envelope: s.envelope, Manifest: s.manifest, Tag: s.tag}); err != nil {
 		return err
 	}
 	cmd := exec.Command(helper, "--apply-update", plan)
@@ -59,6 +76,7 @@ func (s *Service) StartInstaller() error {
 		return err
 	}
 	_ = cmd.Process.Release()
+	started = true
 	s.state.Status, s.state.Message = "installing", "正在退出并安装更新"
 	return nil
 }
@@ -79,6 +97,43 @@ func InstallTarget(executable string) (string, error) {
 }
 
 func ApplyPlan(path, publicKey string, relaunch bool) error {
+	return applyPlan(path, publicKey, relaunch, &http.Client{Timeout: 90 * time.Second})
+}
+
+func verifyPlan(ctx context.Context, plan Plan, key string, client *http.Client) (Manifest, error) {
+	platform := runtime.GOOS + "-" + runtime.GOARCH
+	if len(plan.Envelope.Payload) != 0 || plan.Envelope.Signature != "" {
+		return Verify(plan.Envelope, key, platform)
+	}
+	if plan.Tag != "v"+plan.Manifest.Version && plan.Tag != "pre-release" || !versionPattern.MatchString(plan.Manifest.Version) {
+		return Manifest{}, errors.New("更新计划包含无效的版本")
+	}
+	// The API origin is fixed here: a local plan cannot supply its own authority.
+	s := &Service{HTTP: client, Platform: platform}
+	r, err := s.release(ctx, githubAPI+"/releases/tags/"+url.PathEscape(plan.Tag))
+	if err != nil {
+		return Manifest{}, fmt.Errorf("安装前无法确认 GitHub 发布信息，请重新检查更新: %w", err)
+	}
+	channel := "stable"
+	if plan.Tag == "pre-release" {
+		channel = "beta"
+	}
+	version, err := r.version(channel)
+	if err != nil || r.TagName != plan.Tag || version != plan.Manifest.Version {
+		return Manifest{}, errors.New("发布版本已变化，请重新检查更新")
+	}
+	manifest, err := s.releaseManifest(ctx, r, version)
+	if err != nil {
+		return Manifest{}, err
+	}
+	expected := plan.Manifest
+	if manifest.Platform != expected.Platform || manifest.URL != expected.URL || manifest.Size != expected.Size || manifest.SHA256 != expected.SHA256 {
+		return Manifest{}, errors.New("更新包与 GitHub 发布信息不一致，请重新下载")
+	}
+	return manifest, nil
+}
+
+func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -90,7 +145,9 @@ func ApplyPlan(path, publicKey string, relaunch bool) error {
 	if err = waitForParent(plan.ParentPID); err != nil {
 		return err
 	}
-	manifest, err := Verify(plan.Envelope, publicKey, runtime.GOOS+"-"+runtime.GOARCH)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	manifest, err := verifyPlan(ctx, plan, publicKey, client)
 	if err != nil {
 		return err
 	}
@@ -130,8 +187,16 @@ func ApplyPlan(path, publicKey string, relaunch bool) error {
 	if runtime.GOOS == "linux" {
 		newTarget = filepath.Join(work, "GistManager")
 	}
-	if _, err = os.Stat(newTarget); err != nil {
+	entry := newTarget
+	if runtime.GOOS == "darwin" {
+		entry = filepath.Join(newTarget, "Contents", "MacOS", "Gist管理器")
+	}
+	info, err := os.Stat(entry)
+	if err != nil {
 		return fmt.Errorf("更新包缺少应用文件: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return errors.New("更新包中的应用文件无效")
 	}
 	backup := filepath.Join(work, "previous")
 	deadline := time.Now().Add(60 * time.Second)
@@ -153,7 +218,6 @@ func ApplyPlan(path, publicKey string, relaunch bool) error {
 		}
 		return err
 	}
-	_ = os.Remove(plan.Archive)
 	if relaunch {
 		cmd := exec.Command(plan.Target)
 		if runtime.GOOS == "darwin" {
@@ -161,10 +225,19 @@ func ApplyPlan(path, publicKey string, relaunch bool) error {
 		}
 		hideHelper(cmd)
 		if err = cmd.Start(); err != nil {
-			return err
+			if moveErr := os.Rename(plan.Target, newTarget); moveErr != nil {
+				keepBackup = true
+				return fmt.Errorf("新版本无法启动，原版本备份位于 %s: %w", backup, err)
+			}
+			if rollback := os.Rename(backup, plan.Target); rollback != nil {
+				keepBackup = true
+				return fmt.Errorf("新版本无法启动且恢复失败，备份位于 %s: %w", backup, rollback)
+			}
+			return fmt.Errorf("新版本无法启动，已恢复原版本: %w", err)
 		}
 		_ = cmd.Process.Release()
 	}
+	_ = os.Remove(plan.Archive)
 	return nil
 }
 

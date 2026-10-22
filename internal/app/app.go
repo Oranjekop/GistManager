@@ -67,6 +67,9 @@ type App struct {
 	tokenDraft, unlockPassword                  string
 	connecting                                  bool
 	unlocking                                   bool
+	started                                     bool
+	biometricChecked                            bool
+	biometricAttempted                          bool
 	biometricAvailable                          bool
 	biometricLabel                              string
 	settingsOpen                                bool
@@ -74,6 +77,8 @@ type App struct {
 	confirmPassword                             string
 	settingsIssue                               string
 	settingsBusy                                bool
+	recoveryOpen, recoveryBusy                  bool
+	recoveryIssue                               string
 	tokenOpen                                   bool
 	renameOpen                                  bool
 	renameDraft                                 string
@@ -114,15 +119,22 @@ func New(api API, secure *security.Service, updater *update.Service, version, di
 }
 
 func (a *App) Start() {
+	if a.started {
+		return
+	}
+	a.started = true
+	if !a.Security.State().Locked {
+		a.resume()
+	}
 	a.async(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		available, label := a.Security.BiometricAvailability(ctx)
-		a.post(func() { a.biometricAvailable, a.biometricLabel = available, label })
+		a.post(func() {
+			a.biometricAvailable, a.biometricLabel, a.biometricChecked = available, label, true
+			a.maybeAutoUnlock()
+		})
 	})
-	if !a.Security.State().Locked {
-		a.resume()
-	}
 	if a.Updates != nil {
 		time.AfterFunc(8*time.Second, func() { a.post(func() { a.checkUpdates(false) }) })
 	}
@@ -533,6 +545,10 @@ func (a *App) clearWorkspace() {
 }
 
 func (a *App) lock() {
+	if a.settingsBusy || a.recoveryBusy {
+		a.issue = "请等待安全设置保存完成"
+		return
+	}
 	if !a.Security.State().LockEnabled {
 		a.openSettings()
 		return
@@ -547,12 +563,36 @@ func (a *App) lock() {
 		a.Security.Lock()
 		a.clearWorkspace()
 		a.issue, a.status = "", "应用已锁定"
+		a.biometricAttempted = false
+		a.post(a.maybeAutoUnlock)
 	})
 }
 
+func (a *App) maybeAutoUnlock() {
+	state := a.Security.State()
+	if state.Locked && state.BiometricEnabled && a.biometricChecked && a.biometricAvailable &&
+		!a.biometricAttempted && !a.unlocking && !a.recoveryOpen {
+		a.biometricAttempted = true
+		a.unlock(true)
+	}
+}
+
+func (a *App) authenticationOwner() uintptr {
+	if a.Window != nil && !a.Window.IsDestroyed() {
+		a.Window.Focus()
+		return a.Window.NativeHandle()
+	}
+	return 0
+}
+
 func (a *App) unlock(biometric bool) {
-	if a.unlocking {
+	if a.unlocking || a.recoveryBusy || !a.Security.State().Locked {
 		return
+	}
+	var owner uintptr
+	if biometric {
+		a.biometricAttempted = true
+		owner = a.authenticationOwner()
 	}
 	password := a.unlockPassword
 	a.unlockPassword, a.unlocking, a.issue = "", true, ""
@@ -561,7 +601,7 @@ func (a *App) unlock(biometric bool) {
 		if biometric {
 			ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 			defer cancel()
-			err = a.Security.UnlockBiometric(ctx)
+			err = a.Security.UnlockBiometricForWindow(ctx, owner)
 		} else {
 			err = a.Security.Unlock(password)
 		}
@@ -586,7 +626,7 @@ func (a *App) saveSettings() {
 	if a.settingsBusy {
 		return
 	}
-	if a.settingsForm.NewPassword != a.confirmPassword {
+	if !a.settingsForm.ClearPassword && a.settingsForm.NewPassword != a.confirmPassword {
 		a.settingsIssue = "两次输入的新密码不一致"
 		return
 	}
@@ -604,15 +644,54 @@ func (a *App) saveSettings() {
 			}
 			a.settingsOpen, a.settingsForm, a.confirmPassword = false, security.Options{}, ""
 			a.status = "安全设置已保存"
+			if options.ClearPassword {
+				a.status = "程序密码已清除，启动锁定已关闭"
+			}
+		})
+	})
+}
+
+func (a *App) openPasswordRecovery() {
+	if a.unlocking || a.settingsBusy || a.recoveryBusy {
+		return
+	}
+	a.unlockPassword, a.recoveryIssue, a.recoveryOpen = "", "", true
+}
+
+func (a *App) recoverPassword() {
+	if a.recoveryBusy || a.unlocking || a.settingsBusy {
+		return
+	}
+	owner, wasLocked := a.authenticationOwner(), a.Security.State().Locked
+	a.recoveryBusy, a.recoveryIssue = true, ""
+	a.async(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+		defer cancel()
+		err := a.Security.ClearPasswordWithBiometric(ctx, owner)
+		a.post(func() {
+			a.recoveryBusy = false
+			if err != nil {
+				a.recoveryIssue = err.Error()
+				return
+			}
+			a.recoveryOpen, a.settingsOpen = false, false
+			a.settingsForm, a.confirmPassword, a.unlockPassword = security.Options{}, "", ""
+			a.issue, a.status = "", "程序密码已清除，启动锁定已关闭"
+			if wasLocked {
+				a.resume()
+			}
 		})
 	})
 }
 
 func (a *App) checkUpdates(show bool) {
-	if a.Updates == nil || a.updateBusy {
+	if a.Updates == nil {
 		return
 	}
 	a.updateOpen = a.updateOpen || show
+	if a.updateBusy || a.updateState.Status == "downloaded" || a.updateState.Status == "installing" {
+		return
+	}
 	a.updateBusy, a.updateState.Status = true, "checking"
 	a.async(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -644,12 +723,12 @@ func (a *App) downloadUpdate() {
 
 func (a *App) installUpdate() {
 	a.whenClean(func() {
-		if a.busy || a.settingsBusy {
+		if a.busy || a.settingsBusy || a.recoveryBusy || a.unlocking {
 			a.issue = "请等待当前操作完成"
 			return
 		}
 		if err := a.Updates.StartInstaller(); err != nil {
-			a.updateState.Message = err.Error()
+			a.updateState.Status, a.updateState.Message = "error", err.Error()
 			return
 		}
 		a.allowClose = true
@@ -684,7 +763,7 @@ func (a *App) RequestClose() bool {
 	if a.allowClose {
 		return true
 	}
-	if a.busy || a.settingsBusy {
+	if a.busy || a.settingsBusy || a.recoveryBusy {
 		a.issue = "请等待当前操作完成后退出"
 		return false
 	}

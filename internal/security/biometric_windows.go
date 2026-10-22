@@ -4,67 +4,34 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	_ "embed"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"syscall"
-	"time"
-	"unicode/utf16"
 	"unsafe"
 )
 
-//go:embed windows-hello.ps1
-var helloScript string
-
 type SystemBiometric struct{}
 
-func runHello(ctx context.Context, mode string) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, 65*time.Second)
-	defer cancel()
-	script := "& {\n" + helloScript + "\n} -Mode '" + mode + "'"
-	units := utf16.Encode([]rune(script))
-	data := make([]byte, len(units)*2)
-	for i, u := range units {
-		binary.LittleEndian.PutUint16(data[i*2:], u)
-	}
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", base64.StdEncoding.EncodeToString(data))
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	output, cmdErr := cmd.Output()
-	var result struct {
-		Success   bool   `json:"success"`
-		Available bool   `json:"available"`
-		Result    string `json:"result"`
-	}
-	if err := json.Unmarshal(output, &result); err != nil {
-		if cmdErr != nil {
-			return false, cmdErr
-		}
-		return false, err
-	}
-	if mode == "check" {
-		return result.Available, nil
-	}
-	if !result.Success {
-		return false, errors.New("Windows Hello 已取消或验证失败")
-	}
-	return true, nil
-}
-
 func (SystemBiometric) Available(ctx context.Context) (bool, string) {
-	ok, err := runHello(ctx, "check")
-	if !ok || err != nil {
+	result, err := runHello(ctx, false, 0)
+	if result != 0 || err != nil {
 		return false, "此设备未配置 Windows Hello / PIN，请使用软件密码"
 	}
 	return true, "Windows Hello / PIN"
 }
 
 func (SystemBiometric) Verify(ctx context.Context) error {
-	_, err := runHello(ctx, "verify")
+	return (SystemBiometric{}).VerifyForWindow(ctx, 0)
+}
+
+func (SystemBiometric) VerifyForWindow(ctx context.Context, owner uintptr) error {
+	result, err := runHello(ctx, true, owner)
+	if err == nil && result != 0 {
+		return errors.New("Windows Hello 已取消或验证失败")
+	}
 	return err
 }
 

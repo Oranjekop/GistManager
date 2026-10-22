@@ -4,14 +4,14 @@
 
 ## 下载与安装
 
-在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.1**。
+在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.2**。
 
-| 系统 | 架构 | v1.0.1 安装包 |
+| 系统 | 架构 | v1.0.2 安装包 |
 | --- | --- | --- |
-| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.1-windows-amd64.exe` |
-| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.1-windows-arm64.exe` |
-| macOS 12 及以上 | Intel | `GistManager-1.0.1-darwin-amd64.dmg` |
-| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.1-darwin-arm64.dmg` |
+| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.2-windows-amd64.exe` |
+| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.2-windows-arm64.exe` |
+| macOS 12 及以上 | Intel | `GistManager-1.0.2-darwin-amd64.dmg` |
+| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.2-darwin-arm64.dmg` |
 
 Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
 
@@ -35,9 +35,11 @@ macOS 包使用 ad-hoc 签名，首次打开可能需要在“系统设置 → �
 
 ## 安全与更新
 
-Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后，可通过软件密码或 Windows Hello / PIN、Touch ID 解锁；系统身份验证是否可用取决于设备配置。锁定会清空工作区并取消进行中的请求。切换、刷新、锁定及退出前会提示处理未保存的修改。
+Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后，可通过软件密码或 Windows Hello / PIN、Touch ID 解锁；启用系统身份验证后，每次启动或锁定会自动请求一次验证，取消后仍可手动重试或输入软件密码。系统身份验证是否可用取决于设备配置。锁定会清空工作区并取消进行中的请求。切换、刷新、锁定及退出前会提示处理未保存的修改。
 
-应用会自动检查更新，也可在界面中手动检查。发现新版本后，点击“前往 GitHub 下载”，使用对应系统的安装包更新。正式版和测试版分别打开各自的下载页面。
+设置中的“清除程序密码”支持验证当前密码后清除。忘记密码时，可在锁定页点击“忘记密码”，或在设置中选择系统身份验证，通过 Windows Hello / PIN 或 Touch ID 验证后清除，无需输入原密码。清除后关闭启动锁定和自动身份验证，保留 GitHub Token 与 Gist 数据；取消或验证失败不会清除密码。
+
+应用会自动检查更新，也可点击“检查更新”选择正式版或测试版通道。发现新版本后，点击“下载更新”，下载适合当前系统和架构的便携包，通过 SHA-256 校验后点击“重启并安装”。安装前会再次向 GitHub 确认发布信息并校验文件，再替换应用并重新启动。未保存的修改会先提示处理；当前版本未提供适用的便携包时，可前往 GitHub 使用安装包更新。
 
 Release 同时提供安装器、DMG、便携 ZIP 和 `SHA256SUMS.txt` 校验文件。Windows 可解压 ZIP 后运行程序；macOS 可解压 ZIP 后将应用移入“应用程序”。
 
@@ -59,30 +61,30 @@ go test ./... -timeout 120s
 go vet ./...
 ```
 
-测试覆盖 GitHub HTTP 接口、原生控件交互、安全设置与签名更新。`GIST_SNAPSHOTS` 可指定 UI 测试截图输出目录，`--demo --smoke <输出.png>` 可运行原生窗口、截图并退出。
+测试覆盖 GitHub HTTP 接口、原生控件交互、密码清除与恢复、系统验证流程，以及无私钥更新的下载校验和安装前验证。`GIST_SNAPSHOTS` 可指定 UI 测试截图输出目录，`--demo --smoke <输出.png>` 可运行原生窗口、截图并退出。
 
 ## 构建与发布
 
 本地构建：
 
 ```sh
-go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.1
-go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.1
+go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.2
+go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.2
 ```
 
 输出位于 `dist/<系统>-<架构>/`。Windows 产出 NSIS 安装器；macOS 的应用签名与 DMG 打包需要在 Mac 上执行。
 
 [发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及便携 ZIP。工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布产物，无需配置私钥或额外 Secret。
 
-- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.1`。
+- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.2`。
 - 测试版：推送 `main`，发布包含运行编号和提交哈希的滚动 `pre-release`；同一提交已有正式标签时跳过。
 - 全部测试、构建和产物校验通过后，才公开 Release。
 
 本地生成便携 ZIP：
 
 ```sh
-go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.1
-go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.1
+go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.2
+go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.2
 ```
 
 ## 结构
@@ -93,7 +95,7 @@ mygo.json            版本、图标、打包配置
 internal/app/        原生界面、编辑器、工作区与交互测试
 internal/gist/       GitHub HTTP 客户端、分页与 Raw 内容
 internal/security/   凭据库、密码与系统身份验证
-internal/update/     更新检查、下载页面与安装处理
+internal/update/     更新检查、SHA-256 校验、下载与安装
 cmd/release/         构建与打包工具
 resources/           应用资源
 ```

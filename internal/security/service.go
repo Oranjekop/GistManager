@@ -44,6 +44,7 @@ type Settings struct {
 type Options struct {
 	CurrentPassword  string
 	NewPassword      string
+	ClearPassword    bool
 	LockEnabled      bool
 	BiometricEnabled bool
 }
@@ -62,6 +63,7 @@ type Service struct {
 	unlocked  bool
 	vault     Vault
 	biometric Biometric
+	authEpoch uint64
 }
 
 func Open(dir string, vault Vault, biometric Biometric) (*Service, error) {
@@ -96,6 +98,7 @@ func (s *Service) Lock() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.unlocked = !s.settings.LockEnabled
+	s.authEpoch++
 }
 
 func (s *Service) Unlock(password string) error {
@@ -105,6 +108,7 @@ func (s *Service) Unlock(password string) error {
 		return errors.New("解锁密码不正确")
 	}
 	s.unlocked = true
+	s.authEpoch++
 	return nil
 }
 
@@ -113,18 +117,82 @@ func (s *Service) BiometricAvailability(ctx context.Context) (bool, string) {
 }
 
 func (s *Service) UnlockBiometric(ctx context.Context) error {
+	return s.UnlockBiometricForWindow(ctx, 0)
+}
+
+func (s *Service) verifyBiometric(ctx context.Context, owner uintptr) error {
+	if biometric, ok := s.biometric.(interface {
+		VerifyForWindow(context.Context, uintptr) error
+	}); ok {
+		return biometric.VerifyForWindow(ctx, owner)
+	}
+	return s.biometric.Verify(ctx)
+}
+
+func (s *Service) UnlockBiometricForWindow(ctx context.Context, owner uintptr) error {
 	s.mu.Lock()
 	allowed := s.settings.LockEnabled && s.settings.BiometricEnabled
+	epoch := s.authEpoch
 	s.mu.Unlock()
 	if !allowed {
 		return errors.New("系统身份验证未启用")
 	}
-	if err := s.biometric.Verify(ctx); err != nil {
+	if err := s.verifyBiometric(ctx, owner); err != nil {
 		return fmt.Errorf("系统身份验证未通过，请使用软件密码: %w", err)
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if epoch != s.authEpoch {
+		return errors.New("锁定状态已变化，请重新验证")
+	}
 	s.unlocked = true
+	s.authEpoch++
+	return nil
+}
+
+// Password recovery always requests fresh OS authentication. It is also
+// available from the locked screen, even if automatic biometrics were disabled.
+func (s *Service) ClearPasswordWithBiometric(ctx context.Context, owner uintptr) error {
+	s.mu.Lock()
+	epoch, hasPassword := s.authEpoch, s.settings.PasswordHash != ""
 	s.mu.Unlock()
+	if !hasPassword {
+		return errors.New("尚未设置程序密码")
+	}
+	if available, reason := s.biometric.Available(ctx); !available {
+		return errors.New(reason)
+	}
+	if err := s.verifyBiometric(ctx, owner); err != nil {
+		return fmt.Errorf("未清除密码，系统身份验证未通过: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if epoch != s.authEpoch {
+		return errors.New("安全设置已变化，请重新验证")
+	}
+	return s.clearPassword()
+}
+
+func (s *Service) clearPassword() error {
+	settings := s.settings
+	settings.PasswordHash, settings.PasswordSalt = "", ""
+	settings.LockEnabled, settings.BiometricEnabled = false, false
+	return s.saveSettings(settings)
+}
+
+func (s *Service) saveSettings(settings Settings) error {
+	settings.Version = 2
+	if err := storage.WriteJSON(s.path, settings); err != nil {
+		return err
+	}
+	s.settings, s.unlocked = settings, true
+	s.authEpoch++
 	return nil
 }
 
@@ -137,6 +205,12 @@ func (s *Service) Configure(ctx context.Context, options Options) error {
 	settings := s.settings
 	if settings.PasswordHash != "" && !verify(options.CurrentPassword, settings) {
 		return errors.New("当前解锁密码不正确")
+	}
+	if options.ClearPassword {
+		if options.NewPassword != "" {
+			return errors.New("清除密码时不能同时设置新密码")
+		}
+		return s.clearPassword()
 	}
 	if options.NewPassword != "" && utf8.RuneCountInString(options.NewPassword) < 6 {
 		return errors.New("新的解锁密码至少需要 6 位")
@@ -162,14 +236,9 @@ func (s *Service) Configure(ctx context.Context, options Options) error {
 		}
 		settings.PasswordHash = hex.EncodeToString(hash)
 	}
-	settings.Version = 2
 	settings.LockEnabled = options.LockEnabled
 	settings.BiometricEnabled = options.LockEnabled && options.BiometricEnabled
-	if err := storage.WriteJSON(s.path, settings); err != nil {
-		return err
-	}
-	s.settings, s.unlocked = settings, true
-	return nil
+	return s.saveSettings(settings)
 }
 
 func passwordHash(password, salt string) ([]byte, error) {

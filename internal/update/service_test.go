@@ -160,7 +160,7 @@ func TestInstallVerifiedArchiveAndRejectTraversal(t *testing.T) {
 	}
 }
 
-func TestVersionOrderingAndDisabledUpdates(t *testing.T) {
+func TestVersionOrderingAndKeylessChecks(t *testing.T) {
 	for _, pair := range [][2]string{{"2.0.1", "2.0.0"}, {"2.0.0", "2.0.0-beta.99"}, {"2.0.0-beta.10", "2.0.0-beta.9"}, {"2.0.0-beta.1.abc", "2.0.0-beta.1"}} {
 		if Compare(pair[0], pair[1]) <= 0 || Compare(pair[1], pair[0]) >= 0 {
 			t.Fatal(pair)
@@ -168,7 +168,10 @@ func TestVersionOrderingAndDisabledUpdates(t *testing.T) {
 	}
 	s := New(t.TempDir(), "2.0.0")
 	s.Key = ""
-	if err := s.Check(context.Background()); err != nil || s.State().Status != "manual" {
+	s.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v2.0.0"}`))}, nil
+	})
+	if err := s.Check(context.Background()); err != nil || s.State().Status != "latest" {
 		t.Fatal(err, s.State())
 	}
 	if s.SetChannel("invalid") == nil {
