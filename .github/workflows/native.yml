@@ -105,7 +105,7 @@ jobs:
           test "$("$APP/Contents/MacOS/$EXECUTABLE" --version)" = "$VERSION"
           ARCH=x86_64
           if [[ "$TARGET" == darwin-arm64 ]]; then ARCH=arm64; fi
-          lipo -verify_arch "$ARCH" "$APP/Contents/MacOS/$EXECUTABLE"
+          lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch "$ARCH"
           codesign --verify --deep --strict --verbose=2 "$APP"
       - name: Create portable archive
         shell: bash
