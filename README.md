@@ -4,14 +4,14 @@
 
 ## 下载与安装
 
-在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。首个正式版本为 **v1.0.0**。
+在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.3**。
 
-| 系统 | 架构 | v1.0.0 安装包 |
+| 系统 | 架构 | v1.0.3 安装包 |
 | --- | --- | --- |
-| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.0-windows-amd64.exe` |
-| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.0-windows-arm64.exe` |
-| macOS 12 及以上 | Intel | `GistManager-1.0.0-darwin-amd64.dmg` |
-| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.0-darwin-arm64.dmg` |
+| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.3-windows-amd64.exe` |
+| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.3-windows-arm64.exe` |
+| macOS 12 及以上 | Intel | `GistManager-1.0.3-darwin-amd64.dmg` |
+| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.3-darwin-arm64.dmg` |
 
 Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
 
@@ -66,23 +66,23 @@ go vet ./...
 本地构建：
 
 ```sh
-go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.0
-go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.0
+go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.3
+go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.3
 ```
 
 输出位于 `dist/<系统>-<架构>/`。Windows 产出 NSIS 安装器；macOS 的应用签名与 DMG 打包需要在 Mac 上执行。
 
 [发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及便携 ZIP。工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布产物，无需配置私钥或额外 Secret。
 
-- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.0`。
+- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.3`。
 - 测试版：推送 `main`，发布包含运行编号和提交哈希的滚动 `pre-release`；同一提交已有正式标签时跳过。
 - 全部测试、构建和产物校验通过后，才公开 Release。
 
 本地生成便携 ZIP：
 
 ```sh
-go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.0
-go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.0
+go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.3
+go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.3
 ```
 
 ## 结构

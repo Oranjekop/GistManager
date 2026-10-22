@@ -83,7 +83,7 @@ func (a *App) header(c *ui.Context) {
 		})
 		ui.Spacer(c)
 		if a.user != nil && !a.Security.State().Locked {
-			ui.Text(c, "@"+a.user.Login).TextColor(t.TextMuted).MaxWidth(180).Ellipsis("…")
+			ui.Text(c, "@"+a.user.Login).TextColor(t.TextMuted).MaxWidth(180).MinWidth(0).SingleLine().Tooltip("@" + a.user.Login)
 		}
 		if ui.Button(c, "检查更新").Clicked() {
 			a.checkUpdates(true)
@@ -206,15 +206,15 @@ func (a *App) gistSidebar(c *ui.Context) {
 			if a.current != nil && a.current.ID == g.ID {
 				background, border = p.muted.Mix(p.accent, .1), p.accent.Alpha(.55)
 			}
-			ui.Column(c).Padding(13, 16).Gap(6).Height(91).FillWidth().Background(background).Border(1, border).Radius(12).Children(func() {
-				ui.Text(c, g.Title()).TextColor(p.text).Bold().Ellipsis("…").MaxHeight(22)
+			ui.Column(c).Padding(13, 16).Gap(6).MinHeight(91).FillWidth().Background(background).Border(1, border).Radius(12).Children(func() {
+				ui.Text(c, g.Title()).TextColor(p.text).Bold().SingleLine().Tooltip(g.Title())
 				names := strings.Join(g.Filenames(), ", ")
-				ui.Text(c, names).FontSize(12).TextColor(muted).Ellipsis("…").MaxHeight(18)
+				ui.Text(c, names).FontSize(12).TextColor(muted).SingleLine().Tooltip(names)
 				visibility := "私密"
 				if g.Public {
 					visibility = "公开"
 				}
-				ui.Text(c, fmt.Sprintf("%s · %d 个文件 · %s", visibility, len(g.Files), relativeDate(g.UpdatedAt))).FontSize(11).TextColor(muted)
+				ui.Text(c, fmt.Sprintf("%s · %d 个文件 · %s", visibility, len(g.Files), relativeDate(g.UpdatedAt))).FontSize(11).TextColor(muted).SingleLine()
 			})
 		}).Grow(1).Label("Gist 列表").Disabled(a.busy).Gap(8).Padding(0, 8)
 		c.SetTheme(t)
@@ -300,7 +300,7 @@ func (a *App) workspace(c *ui.Context) {
 				if a.mode == "add" {
 					title = "新增文件"
 				}
-				ui.Text(c, title).Bold().FontSize(18).Ellipsis("…").Grow(1).MaxHeight(26)
+				ui.Text(c, title).Bold().FontSize(18).SingleLine().Grow(1).MinWidth(0).Tooltip(title)
 				if a.editing {
 					if ui.Button(c, "取消编辑").Disabled(a.busy).Clicked() {
 						a.cancelEditing()
@@ -367,7 +367,7 @@ func (a *App) statusbar(c *ui.Context) {
 		if a.issue != "" {
 			message, color = a.issue, t.Danger
 		}
-		ui.Text(c, message).FontSize(11).TextColor(color).Grow(1).Ellipsis("…").MaxHeight(20)
+		ui.Text(c, message).FontSize(11).TextColor(color).Grow(1).MinWidth(0).SingleLine().Tooltip(message)
 		if a.current != nil && !a.Security.State().Locked {
 			state := "已保存"
 			if a.dirty() {
@@ -382,7 +382,7 @@ func (a *App) statusbar(c *ui.Context) {
 func (a *App) settingsDialog(c *ui.Context) {
 	t := c.Theme()
 	modal := ui.Modal(c, &a.settingsOpen, func() {
-		ui.Column(c).Width(460).MaxWidthPercent(95).Gap(16).Children(func() {
+		ui.Column(c).Width(460).MaxWidthPercent(100).Gap(16).Children(func() {
 			ui.Text(c, "系统设置").FontSize(22).Bold()
 			ui.Text(c, "安全与解锁").Bold().TextColor(t.TextMuted)
 			ui.Checkbox(c, &a.settingsForm.LockEnabled, "启动时锁定应用").Disabled(a.settingsBusy)
@@ -414,7 +414,7 @@ func (a *App) settingsDialog(c *ui.Context) {
 				}
 			})
 		})
-	})
+	}).Label("系统设置对话框")
 	if modal.Dismissed() && a.settingsBusy {
 		a.settingsOpen = true
 	}
