@@ -1,0 +1,21 @@
+{
+  "name": "Gist管理器",
+  "identifier": "com.perzikkop.gist-manager",
+  "version": "1.0.0",
+  "main": ".",
+  "out": "dist",
+  "icon": "resources/icon.png",
+  "bindings": "",
+  "macos": {
+    "minimumSystemVersion": "12.0",
+    "infoPlist": {
+      "NSHumanReadableCopyright": "GistManager contributors",
+      "NSFaceIDUsageDescription": "用于解锁 Gist管理器"
+    }
+  },
+  "linux": {
+    "webview": false,
+    "categories": ["Development", "Utility"],
+    "comment": "Native GitHub Gist manager"
+  }
+}

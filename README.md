@@ -1,152 +1,103 @@
 # Gist管理器
 
-一个基于 `Vue 3 + Electron` 的 GitHub Gist 单体桌面客户端。
+使用 Go 和 [MyGo](https://github.com/egoist/mygo) 构建的原生 GitHub Gist 桌面客户端，支持 Windows 和 macOS。通过三栏工作区管理 Gist、浏览文件和编辑代码，提供浅色与深色主题、安全锁定及应用内更新。
 
-程序启动后直接以客户端形态运行，界面通过 Electron 主进程直接访问 GitHub API，不再依赖单独的本地后端服务或额外端口。
+## 下载与安装
 
-## 功能特性
+在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。首个正式版本为 **v1.0.0**。
 
-- 通过 GitHub Token 管理当前账号下全部 Gist
-- 首次启动输入 Token，后续自动连接
-- 支持随时更换 Token
-- 浏览 Gist 列表、文件树和文件详情
-- 创建 Gist、添加文件、重命名文件、删除文件、删除 Gist
-- 集成 Monaco 编辑器，适合代码和配置文件编辑
-- 编辑器默认查看模式，点击“编辑”后才允许修改，减少误操作
-- 支持复制 Raw 链接、打开 Raw 链接、在网页中打开当前 Gist
-- 支持启动锁定、软件解锁密码与手动立即锁定
-- Windows 使用 Windows Hello / PIN，macOS 使用 Touch ID，不可用时自动回退到软件密码
-- GitHub Token 通过 Electron `safeStorage` 使用系统凭据加密后保存
-- 支持自动与手动检查更新、下载进度显示以及重启安装
-- 可在正式版与测试版更新通道之间切换，并记住用户选择
-- 支持 Windows 与 macOS 安装包打包
-- 推送版本标签自动构建正式版，推送 `main` 提交自动构建滚动测试版
+| 系统 | 架构 | v1.0.0 安装包 |
+| --- | --- | --- |
+| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.0-windows-amd64.exe` |
+| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.0-windows-arm64.exe` |
+| macOS 12 及以上 | Intel | `GistManager-1.0.0-darwin-amd64.dmg` |
+| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.0-darwin-arm64.dmg` |
 
-## 技术栈
+Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
 
-- `Vue 3`
-- `Vite`
-- `Electron`
-- `Monaco Editor`
+macOS 包在未配置 Developer ID 证书和公证凭据时使用 ad-hoc 签名，首次打开可能需要在“系统设置 → 隐私与安全性”中允许。
 
-## 项目结构
+## 使用
+
+1. 准备具有 Gist 读写权限的 GitHub Personal Access Token，在启动界面连接账号。
+2. 在左侧搜索和选择 Gist，在文件栏切换文件。代码默认只读，点击“编辑”后修改并保存。
+3. 使用“新建 Gist”“新增文件”和文件操作管理内容，也可复制 Raw 链接或打开 GitHub 页面。
+4. 在设置中配置软件密码、启动锁定和系统身份验证，并选择正式版或测试版更新通道。
+
+支持分页加载全部 Gist，按描述、文件名或 ID 搜索，以及创建、编辑、重命名和删除 Gist 文件。原生编辑器提供语法高亮、撤销与重做、查找替换、多光标、折叠和自动换行，保存时保留文件换行格式。
+
+| 操作 | Windows | macOS |
+| --- | --- | --- |
+| 保存 | `Ctrl+S` | `Cmd+S` |
+| 新建 Gist | `Ctrl+N` | `Cmd+N` |
+| 刷新 | `Ctrl+R` | `Cmd+R` |
+| 锁定 | `Ctrl+Shift+L` | `Cmd+Shift+L` |
+
+## 安全与更新
+
+Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后，可通过软件密码或 Windows Hello / PIN、Touch ID 解锁；系统身份验证是否可用取决于设备配置。锁定会清空工作区并取消进行中的请求。切换、刷新、锁定及退出前会提示处理未保存的修改。
+
+应用会自动检查更新，也可在界面中手动检查。下载时验证 Ed25519 签名、平台、文件大小和 SHA-256，完成后选择“重启并安装”。安装器和 DMG 用于首次安装，Release 中的 ZIP 与 `native-update-<系统>-<架构>.json` 用于应用内更新。
+
+设置保存在系统应用数据目录下的 `Gist管理器/` 中。`--data-dir <目录>` 可指定独立数据目录，开发热重载使用 `Gist管理器-dev/`。
+
+## 开发
+
+安装 [Go 1.27.1 或更新版本](https://go.dev/dl/)，然后执行：
+
+```sh
+go mod download
+go run .
+```
+
+`go tool mygo dev` 启动原生开发热重载。`go run . --demo` 使用隔离的内存演示数据，可体验界面和编辑操作。
+
+```sh
+go test ./... -timeout 120s
+go vet ./...
+```
+
+测试覆盖 GitHub HTTP 接口、原生控件交互、安全设置与签名更新。`GIST_SNAPSHOTS` 可指定 UI 测试截图输出目录，`--demo --smoke <输出.png>` 可运行原生窗口、截图并退出。
+
+## 构建与发布
+
+本地构建：
+
+```sh
+go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.0
+go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.0
+```
+
+输出位于 `dist/<系统>-<架构>/`。Windows 产出 NSIS 安装器；macOS 的应用签名与 DMG 打包需要在 Mac 上执行。
+
+[发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及更新包：
+
+- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.0`。
+- 测试版：推送 `main`，发布包含运行编号和提交哈希的滚动 `pre-release`；同一提交已有正式标签时跳过。
+- 全部测试、构建和产物校验通过后，才公开 Release。
+
+| Actions Secret | 用途 |
+| --- | --- |
+| `GIST_UPDATE_PRIVATE_KEY` | 必填；与 `resources/update-public.key` 匹配的 Base64 Ed25519 私钥，用于签名更新包 |
+| `CSC_LINK`、`CSC_KEY_PASSWORD` | 可选；macOS Developer ID 证书及密码，证书支持 Base64 或 HTTPS 地址 |
+| `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_PASSWORD` | 可选；与 Developer ID 证书一起使用，提交 Apple 公证并附加凭证 |
+
+私钥应安全备份，存放于已被 Git 忽略的 `.keys/update-private.key`。新项目可在公私钥均未配置时执行 `go run ./cmd/release keygen` 生成密钥；签名工具会校验公私钥是否匹配。
+
+```sh
+go run ./cmd/release pack -platform windows-amd64 -version 1.0.0
+go run ./cmd/release pack -platform darwin-arm64 -version 1.0.0
+```
+
+## 结构
 
 ```text
-.
-├─ client/          界面代码
-├─ electron/        Electron 主进程、预加载桥与 GitHub 客户端能力
-├─ build/           图标与打包资源
-├─ release/         打包输出目录
-└─ README.md
+main.go              原生入口与窗口生命周期
+mygo.json            版本、图标、打包配置
+internal/app/        原生界面、编辑器、工作区与交互测试
+internal/gist/       GitHub HTTP 客户端、分页与 Raw 内容
+internal/security/   凭据库、密码与系统身份验证
+internal/update/     更新通道、签名验证、下载与安装
+cmd/release/         构建、生成密钥、签名更新包
+resources/           图标与更新公钥
 ```
-
-## 运行方式
-
-### 安装依赖
-
-```bash
-npm install
-npm install --prefix client
-```
-
-### 启动桌面版
-
-```bash
-npm run dev:desktop
-```
-
-启动后会自动：
-
-- 启动 Vite 前端开发服务
-- 打开 Electron 桌面客户端
-- 由 Electron 直接处理 GitHub Gist 请求
-
-## 打包
-
-```bash
-npm run dist:win
-npm run dist:mac
-```
-
-打包完成后，安装包输出到：
-
-```text
-release/GistManager-Setup-1.0.1-x64.exe
-```
-
-## 自动构建
-
-- 推送 `v1.2.3` 形式的 tag：构建 Windows x64/arm64 与 macOS x64/arm64 正式版，并发布对应 GitHub Release。
-- 推送到 `main`：生成带提交短哈希的 beta 版本，并覆盖 `pre-release` 滚动测试版。
-- 同一提交已经存在正式版本 tag 时，会跳过测试版构建。
-- Release 会同时上传安装包、差分更新 blockmap 和更新通道 YAML 元数据。
-
-## 软件更新
-
-应用启动约 8 秒后会自动检查一次更新，也可以点击右上角“检查更新”手动检查。
-
-- `正式版`：只接收稳定 GitHub Release。
-- `测试版`：接收标记为 Pre-release 的 beta 版本。
-- 检测到更新后由用户确认下载；下载完成后点击“重启并安装”才会退出应用并启动安装。
-- 测试版切换回正式版时，允许回到 GitHub 上最新的稳定版本。
-
-macOS 自动更新要求发布包使用同一开发者证书签名；在仓库 Secrets 中配置 `CSC_LINK` 和 `CSC_KEY_PASSWORD` 后，工作流会自动签名。未配置证书时仍可构建安装包，但 macOS 可能拒绝自动安装更新。
-
-## 解锁设置
-
-在应用右上角的“系统设置”中可以：
-
-- 设置或修改至少 6 位的软件解锁密码
-- 决定是否在启动时锁定应用
-- 在系统已配置相应能力时启用 Windows Hello / PIN 或 macOS Touch ID
-- 随时点击“立即锁定”隐藏工作区并阻止主进程继续访问 Gist API
-
-系统身份验证取消、失败或临时不可用时，锁屏会保留软件密码解锁入口。
-
-## Token 说明
-
-程序需要 GitHub Personal Access Token，建议至少包含：
-
-- `gist`
-
-使用规则：
-
-- 首次打开时输入 Token
-- 本地已保存 Token 时会从系统加密存储读取并自动连接
-- 已连接后界面不会明文展示 Token
-- 可通过“更换 Token”重新绑定账号
-
-## 支持的操作
-
-### Gist
-
-- 加载全部 Gist
-- 创建 Gist
-- 删除 Gist
-- 在网页中打开当前 Gist
-
-### 文件
-
-- 选择文件
-- 查看文件内容
-- 进入编辑模式并保存修改
-- 重命名文件
-- 删除文件
-- 新增文件
-- 打开 Raw 链接
-- 复制 Raw 链接
-
-## 桌面客户端说明
-
-- 不依赖独立本地后端服务
-- 不需要手动启动额外 API 进程
-- 已隐藏 Electron 原生菜单栏
-- 支持高分辨率图标
-- 支持跟随系统浅色 / 深色主题
-
-## 后续可扩展
-
-- 自动更新
-- Gist 搜索与筛选增强
-- 多标签页编辑
-- 更多文件语言支持
