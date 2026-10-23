@@ -383,12 +383,49 @@ func TestKeylessDownloadAndReopeningUpdateDialog(t *testing.T) {
 	if a.updateBusy || a.updateState.Status != "downloaded" || !tt.HasText("重启并安装") {
 		t.Fatal("download did not finish", a.updateState)
 	}
+	if !tt.HasText("安装会直接替换程序并自动重启，无需安装向导。") ||
+		tt.HasText("已启用启动锁定，重启后需再次验证身份。") {
+		t.Fatal("update dialog did not explain the restart or reported a disabled lock")
+	}
 	click(t, tt, "关闭")
 	click(t, tt, "检查更新")
 	if a.updateState.Status != "downloaded" {
 		t.Fatal("reopening discarded a downloaded update")
 	}
 	snapshot(t, tt, "update-downloaded-light.png")
+}
+
+func TestCheckingUpdatesDoesNotRequestStartupAuthentication(t *testing.T) {
+	for _, locked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("locked-%t", locked), func(t *testing.T) {
+			updater := fixtureApp(t).Updates
+			biometric := &authFixture{available: true}
+			a := lockedFixture(t, biometric, true)
+			if !locked {
+				if err := a.Security.Unlock("fixture-password"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			a.Start()
+			a.Updates, a.updateState = updater, updater.State()
+			attempts, before := biometric.attempts, a.Security.State()
+			tt := ui.NewTester(a.View, 1000, 680)
+			click(t, tt, "检查更新")
+			if !a.updateOpen || a.updateState.Status != "manual" || !tt.HasText("软件更新") {
+				t.Fatal("checking updates did not open the update dialog", a.updateState)
+			}
+			if biometric.attempts != attempts || a.Security.State() != before {
+				t.Fatal("checking updates requested authentication or changed the lock state")
+			}
+			a.updateState.Status = "downloaded"
+			tt.Frame()
+			if !tt.HasText("安装会直接替换程序并自动重启，无需安装向导。") ||
+				!tt.HasText("已启用启动锁定，重启后需再次验证身份。") {
+				t.Fatal("downloaded update did not explain automatic installation and startup authentication")
+			}
+			assertCenteredDialog(t, tt, "软件更新对话框", 1000, 680)
+		})
+	}
 }
 
 func TestInstallerStartFailureOffersManualDownload(t *testing.T) {

@@ -123,6 +123,11 @@ func main() {
 			Title: config.Name, Width: 1500, Height: 940, MinWidth: 1000, MinHeight: 680,
 			Content: ui.View(a.View),
 		})
+		// Older Windows update helpers pass SW_HIDE to the relaunched app.
+		// Show the workspace before startup authentication can open its prompt.
+		if !a.Window.IsVisible() {
+			a.Window.Show()
+		}
 		if err := a.Window.SetIcon(icon); err != nil {
 			log.Printf("icon: %v", err)
 		}

@@ -4,14 +4,14 @@
 
 ## 下载与安装
 
-在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.4**。
+在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.5**。
 
-| 系统 | 架构 | v1.0.4 安装包 |
+| 系统 | 架构 | v1.0.5 安装包 |
 | --- | --- | --- |
-| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.4-windows-amd64.exe` |
-| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.4-windows-arm64.exe` |
-| macOS 12 及以上 | Intel | `GistManager-1.0.4-darwin-amd64.dmg` |
-| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.4-darwin-arm64.dmg` |
+| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.5-windows-amd64.exe` |
+| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.5-windows-arm64.exe` |
+| macOS 12 及以上 | Intel | `GistManager-1.0.5-darwin-amd64.dmg` |
+| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.5-darwin-arm64.dmg` |
 
 Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
 
@@ -43,6 +43,8 @@ Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后�
 
 应用会自动检查最新正式版本，也可点击“检查更新”手动检查。发现新版本后，点击“下载更新”，下载适合当前系统和架构的便携包，通过 SHA-256 校验后点击“重启并安装”。安装前会再次向 GitHub 确认发布信息并校验文件，再替换应用并重新启动。未保存的修改会先提示处理；当前版本未提供适用的便携包时，可前往 GitHub 使用安装包更新。
 
+应用内更新会自动替换程序并重启，无需打开安装向导。启用启动锁定时，重启后仍需通过程序密码或系统身份验证解锁。
+
 Release 同时提供安装器、DMG、便携 ZIP 和 `SHA256SUMS.txt` 校验文件。Windows 可解压 ZIP 后运行程序；macOS 可解压 ZIP 后将应用移入“应用程序”。
 
 设置保存在系统应用数据目录下的 `Gist管理器/` 中。`--data-dir <目录>` 可指定独立数据目录，开发热重载使用 `Gist管理器-dev/`。
@@ -70,23 +72,23 @@ go vet ./...
 本地构建：
 
 ```sh
-go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.4
-go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.4
+go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.5
+go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.5
 ```
 
 输出位于 `dist/<系统>-<架构>/`。Windows 使用项目内的 NSIS 脚本产出简体中文安装器，包含中文安装、完成页和卸载界面；macOS 的应用签名与 DMG 打包需要在 Mac 上执行。
 
 [发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及便携 ZIP。工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布产物，无需配置私钥或额外 Secret。
 
-- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.4`。
+- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.5`。
 - 推送 `main` 或创建 Pull Request 时运行检查；仅匹配版本号的正式标签触发安装包编译和发布。
 - 全部测试、构建和产物校验通过后，才公开 Release。
 
 本地生成便携 ZIP：
 
 ```sh
-go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.4
-go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.4
+go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.5
+go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.5
 ```
 
 ## 结构

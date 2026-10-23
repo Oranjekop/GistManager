@@ -746,6 +746,12 @@ func (a *App) updateDialog(c *ui.Context) {
 			if message != "" {
 				ui.Text(c, message)
 			}
+			if a.updateState.Status == "downloaded" {
+				ui.Text(c, "安装会直接替换程序并自动重启，无需安装向导。").FontSize(13).TextColor(c.Theme().TextMuted)
+				if a.Security.State().LockEnabled {
+					ui.Text(c, "已启用启动锁定，重启后需再次验证身份。").FontSize(13).TextColor(c.Theme().TextMuted)
+				}
+			}
 			if a.updateState.Status == "downloading" {
 				fraction := float64(0)
 				if a.updateState.Total > 0 {

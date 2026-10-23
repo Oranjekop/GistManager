@@ -219,7 +219,6 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 		if runtime.GOOS == "darwin" {
 			cmd = exec.Command("/usr/bin/open", "-n", plan.Target)
 		}
-		hideHelper(cmd)
 		if err = cmd.Start(); err != nil {
 			if moveErr := os.Rename(plan.Target, newTarget); moveErr != nil {
 				keepBackup = true
