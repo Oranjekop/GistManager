@@ -78,10 +78,11 @@ func TestGistHoverCoversTheCardAndPreservesRoundedCorners(t *testing.T) {
 							t.Fatalf("hover did not reach the card edge at (%d, %d)", x, y)
 						}
 					}
-					// Round toward the corner so pixel centers stay outside the
-					// antialiased edge, including macOS's fractional font metrics.
-					cornerXs := []int{int(math.Floor(float64(card.X))) + 2, int(math.Ceil(float64(card.X+card.W))) - 3}
-					cornerYs := []int{int(math.Floor(float64(card.Y))) + 2, int(math.Ceil(float64(card.Y+card.H))) - 3}
+					// Match the painter's snapped bounds. The outermost pixels
+					// stay outside both circular and macOS continuous corners,
+					// including their different antialiasing bands.
+					cornerXs := []int{int(math.Round(float64(card.X))), int(math.Round(float64(card.X+card.W))) - 1}
+					cornerYs := []int{int(math.Round(float64(card.Y))), int(math.Round(float64(card.Y+card.H))) - 1}
 					for _, x := range cornerXs {
 						for _, y := range cornerYs {
 							if baseline.RGBAAt(x, y) != hovered.RGBAAt(x, y) {
