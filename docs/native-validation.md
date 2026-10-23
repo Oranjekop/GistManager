@@ -1,6 +1,6 @@
 # Native application validation
 
-Validation for v1.0.0 on 2026-10-22, using Go 1.27.1 and MyGo v0.6.2.
+Native validation uses Go 1.27.1 and MyGo v0.6.2. Release-specific changes are recorded under `docs/releases/`.
 
 | Requirement | Evidence |
 | --- | --- |
@@ -11,9 +11,9 @@ Validation for v1.0.0 on 2026-10-22, using Go 1.27.1 and MyGo v0.6.2.
 | Editor behavior | Native UI tests verify read-only default, Chinese text editing, save/cancel, unsaved-change confirmation, Raw actions, CRLF preservation, search and minimum-size geometry. Language coverage includes PowerShell, Vue and CSS variants. |
 | Secure storage | Password, lock and fallback tests pass. A separate, temporary Windows Credential Manager entry passed save/load/delete integration and was deleted. |
 | Windows Hello / Touch ID | Windows Hello availability check returned true without prompting. Password fallback and biometric success/cancellation are tested with an injected provider. Darwin LocalAuthentication code builds for Intel and Apple Silicon. Physical biometric verification was not performed. |
-| Updates and channels | Tests verify stable/beta checks, installer-only releases, version comparisons and channel-specific download pages. Releases without automatic-update manifests offer the GitHub installer; unsigned content is not accepted by the automatic installer. Signed-update validation and archive traversal tests remain covered independently. |
+| Formal releases | Tests verify checks against the latest formal release, installer-only releases, version comparisons, rejection of drafts and prereleases, and migration from obsolete update settings. Signed-update validation and archive traversal tests remain covered independently. |
 | Native packaging | The v1.0.0 Windows amd64 executable, NSIS installer and portable archive are built and checked locally. CI builds Windows amd64/arm64 and macOS Intel/Apple Silicon installers and portable archives. |
-| Release workflow | Actionlint validates the workflow. Tests run on Windows, macOS Intel and macOS Apple Silicon. Release tags must match `mygo.json`. All eight installer/ZIP assets must be present before publishing, with a combined SHA-256 checksum file. The workflow requires no custom secret. |
+| Release workflow | Actionlint validates the workflow. Tests run on Windows, macOS Intel and macOS Apple Silicon. Only formal release tags matching `mygo.json` compile and publish installation packages. All eight installer/ZIP assets must be present before publishing, with a combined SHA-256 checksum file. The workflow requires no custom secret. |
 | macOS validation in CI | The native runner executes the bundled binary with `--version`, verifies its Info.plist version, checks its CPU architecture with `lipo` and verifies its bundle signature with `codesign`. DMG creation runs on the matching Mac runner. |
 
 Final checks passed:

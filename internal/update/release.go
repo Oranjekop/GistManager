@@ -14,7 +14,7 @@ import (
 
 const githubAPI = "https://api.github.com/repos/" + Repository
 
-var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`)
+var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 var errNoArchive = errors.New("此版本未提供适用于当前平台的便携更新包")
 
 type releaseAsset struct {
@@ -44,15 +44,10 @@ func (s *Service) release(ctx context.Context, endpoint string) (release, error)
 	return result, nil
 }
 
-func (r release) version(channel string) (string, error) {
+func (r release) version() (string, error) {
 	version := strings.TrimPrefix(r.TagName, "v")
-	if channel == "beta" && r.TagName == "pre-release" {
-		version = strings.TrimPrefix(r.Name, "v")
-	} else if channel != "stable" || r.TagName != "v"+version || r.Prerelease || strings.Contains(version, "-") {
-		return "", errors.New("更新版本与所选通道不匹配")
-	}
-	if r.Draft || !versionPattern.MatchString(version) {
-		return "", errors.New("更新服务返回了无效的版本")
+	if r.Draft || r.Prerelease || r.TagName != "v"+version || !versionPattern.MatchString(version) {
+		return "", errors.New("更新服务未返回有效的正式版本")
 	}
 	return version, nil
 }

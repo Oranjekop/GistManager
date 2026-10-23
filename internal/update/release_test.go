@@ -49,43 +49,32 @@ func keylessClient(t *testing.T, fixture *release, archive []byte) *http.Client 
 func TestKeylessUpdatesForEveryReleasePlatform(t *testing.T) {
 	for _, platform := range []string{"windows-amd64", "windows-arm64", "darwin-amd64", "darwin-arm64"} {
 		for _, checksum := range []bool{false, true} {
-			for _, beta := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/checksum-%t/beta-%t", platform, checksum, beta), func(t *testing.T) {
-					archive := archiveFixture(t, "fixture", "new application")
-					version, tag := "1.0.1", "v1.0.1"
-					if beta {
-						version, tag = "1.0.1-beta.42.abc", "pre-release"
-					}
-					fixture := keylessFixture(platform, version, tag, archive)
-					if checksum {
-						fixture.Assets[0].Digest = ""
-					}
-					s := New(t.TempDir(), "1.0.0")
-					s.Key, s.Platform, s.HTTP = "", platform, keylessClient(t, &fixture, archive)
-					if beta {
-						if err := s.SetChannel("beta"); err != nil {
-							t.Fatal(err)
-						}
-					}
-					if err := s.Check(context.Background()); err != nil || s.State().Status != "available" || s.State().Available != version {
-						t.Fatal(err, s.State())
-					}
-					var progress State
-					if err := s.Download(context.Background(), func(state State) { progress = state }); err != nil {
-						t.Fatal(err)
-					}
-					if s.State().Status != "downloaded" || progress.Total != int64(len(archive)) || s.tag != tag {
-						t.Fatal("update was not downloaded", s.State(), progress)
-					}
-					old := s.archive
-					if err := s.SetChannel("stable"); err != nil {
-						t.Fatal(err)
-					}
-					if _, err := os.Stat(old); !os.IsNotExist(err) || s.archive != "" || s.tag != "" || s.State().Downloaded != 0 {
-						t.Fatal("channel switch retained a downloaded update")
-					}
-				})
-			}
+			t.Run(fmt.Sprintf("%s/checksum-%t", platform, checksum), func(t *testing.T) {
+				archive := archiveFixture(t, "fixture", "new application")
+				fixture := keylessFixture(platform, "1.0.1", "v1.0.1", archive)
+				if checksum {
+					fixture.Assets[0].Digest = ""
+				}
+				s := New(t.TempDir(), "1.0.0")
+				s.Key, s.Platform, s.HTTP = "", platform, keylessClient(t, &fixture, archive)
+				if err := s.Check(context.Background()); err != nil || s.State().Status != "available" || s.State().Available != "1.0.1" {
+					t.Fatal(err, s.State())
+				}
+				var progress State
+				if err := s.Download(context.Background(), func(state State) { progress = state }); err != nil {
+					t.Fatal(err)
+				}
+				if s.State().Status != "downloaded" || progress.Total != int64(len(archive)) || s.tag != "v1.0.1" {
+					t.Fatal("update was not downloaded", s.State(), progress)
+				}
+				old := s.archive
+				if err := s.Check(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(old); !os.IsNotExist(err) || s.archive != "" || s.State().Downloaded != 0 {
+					t.Fatal("checking again retained a downloaded update")
+				}
+			})
 		}
 	}
 }
@@ -97,6 +86,9 @@ func TestRejectInvalidReleaseMetadata(t *testing.T) {
 	}{
 		{"draft", func(r *release) { r.Draft = true }},
 		{"unstable", func(r *release) { r.Prerelease = true }},
+		{"suffixed-version", func(r *release) { r.TagName = "v1.0.1-beta.1" }},
+		{"rolling-tag", func(r *release) { r.TagName = "pre-release" }},
+		{"missing-prefix", func(r *release) { r.TagName = "1.0.1" }},
 		{"tag", func(r *release) { r.TagName = "v../../other" }},
 		{"other-repository", func(r *release) { r.Assets[0].URL = strings.Replace(r.Assets[0].URL, Repository, "other/repo", 1) }},
 		{"insecure-url", func(r *release) { r.Assets[0].URL = strings.Replace(r.Assets[0].URL, "https:", "http:", 1) }},
@@ -132,7 +124,7 @@ func TestUnsignedInstallerRevalidatesGitHubRelease(t *testing.T) {
 	}
 	archive := archiveFixture(t, application, "new application")
 	platform := runtime.GOOS + "-" + runtime.GOARCH
-	for _, failure := range []string{"", "local-hash", "local-platform", "archive-tampered", "remote-replaced", "release-rolled", "network-error"} {
+	for _, failure := range []string{"", "local-hash", "local-platform", "nonformal-version", "nonformal-tag", "remote-prerelease", "archive-tampered", "remote-replaced", "release-rolled", "network-error"} {
 		t.Run(failure, func(t *testing.T) {
 			dir := t.TempDir()
 			s := New(dir, "1.0.0")
@@ -168,6 +160,13 @@ func TestUnsignedInstallerRevalidatesGitHubRelease(t *testing.T) {
 				plan.Manifest.SHA256 = strings.Repeat("0", 64)
 			case "local-platform":
 				plan.Manifest.Platform = "wrong-platform"
+			case "nonformal-version":
+				plan.Manifest.Version = "1.0.1-beta.1"
+				plan.Tag = "v" + plan.Manifest.Version
+			case "nonformal-tag":
+				plan.Tag = "pre-release"
+			case "remote-prerelease":
+				fixture.Prerelease = true
 			case "archive-tampered":
 				if err := os.WriteFile(plan.Archive, bytes.Repeat([]byte("x"), len(archive)), 0o600); err != nil {
 					t.Fatal(err)

@@ -28,9 +28,6 @@ func fixtureApp(t *testing.T) *App {
 	updater.Key = ""
 	updater.HTTP.Transport = appRoundTrip(func(r *http.Request) (*http.Response, error) {
 		data := `{"tag_name":"v1.0.1","name":"v1.0.1"}`
-		if strings.HasSuffix(r.URL.Path, "/pre-release") {
-			data = `{"tag_name":"pre-release","name":"v1.0.1-beta.2.abc"}`
-		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(data))}, nil
 	})
 	a := New(NewDemoAPI(), secure, updater, "1.0.0", dir)
@@ -267,7 +264,7 @@ func TestEmptySearchCanReturnToTheList(t *testing.T) {
 	}
 }
 
-func TestUpdateChannelUI(t *testing.T) {
+func TestUpdateDialogUsesOnlyFormalReleases(t *testing.T) {
 	a := fixtureApp(t)
 	opened := ""
 	a.openURL = func(location string) error { opened = location; return nil }
@@ -276,13 +273,13 @@ func TestUpdateChannelUI(t *testing.T) {
 	if !a.updateOpen || a.updateState.Status != "manual" {
 		t.Fatal("installer-only release should offer manual download")
 	}
-	click(t, tt, "测试版")
-	if a.Updates.State().Channel != "beta" {
-		t.Fatal("channel UI not persisted")
+	if tt.HasText("测试版") || tt.HasText("正式版") {
+		t.Fatal("update dialog still exposes a release-channel selector")
 	}
+	snapshot(t, tt, "update-formal-only.png")
 	click(t, tt, "前往 GitHub 下载")
-	if opened != "https://github.com/Oranjekop/GistManager/releases/tag/pre-release" {
-		t.Fatal("download page did not follow the selected update channel", opened)
+	if opened != "https://github.com/Oranjekop/GistManager/releases/latest" {
+		t.Fatal("download page does not use the latest formal release", opened)
 	}
 	click(t, tt, "关闭")
 	if a.updateOpen {

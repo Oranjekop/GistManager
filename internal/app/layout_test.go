@@ -109,6 +109,71 @@ func TestGistHoverCoversTheCardAndPreservesRoundedCorners(t *testing.T) {
 	}
 }
 
+func TestEditorScrollbarsStayVisibleAndCanBeDragged(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		for _, editing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("dark-%t-editing-%t", dark, editing), func(t *testing.T) {
+				a := fixtureApp(t)
+				a.editing, a.wrap = editing, false
+				text := strings.Repeat("// scrollbar fixture "+strings.Repeat("x", 320)+"\n", 120)
+				a.resetEditor(text)
+				tt := ui.NewTester(a.View, 1500, 940)
+				tt.SetDark(dark)
+				box := findBox(t, tt, "代码编辑器")
+				vx, vy := box.X+box.W-5, box.Y+12
+				hx, hy := box.X+100, box.Y+box.H-5
+				for _, point := range [][2]float32{{vx, vy}, {hx, hy}} {
+					if ratio := editorPixelContrast(tt.Image(), int(point[0]), int(point[1])); ratio < 3 {
+						t.Fatalf("resting scrollbar is hard to see: contrast=%g at %v", ratio, point)
+					}
+				}
+				snapshot(t, tt, fmt.Sprintf("editor-scrollbars-dark-%t-editing-%t.png", dark, editing))
+				baseline := copyFrame(tt)
+				tt.Move(vx, vy)
+				if editorPixelContrast(tt.Image(), int(vx), int(vy)) <= editorPixelContrast(baseline, int(vx), int(vy)) {
+					t.Fatal("hover did not make the vertical scrollbar more visible")
+				}
+				snapshot(t, tt, fmt.Sprintf("editor-scrollbars-hover-dark-%t-editing-%t.png", dark, editing))
+
+				tt.Press(hx, hy)
+				tt.Move(box.X+box.W*.65, hy)
+				tt.Release(box.X+box.W*.65, hy)
+				tt.Move(10, 10)
+				if baseline.RGBAAt(int(hx), int(hy)) == tt.Image().RGBAAt(int(hx), int(hy)) {
+					t.Fatal("horizontal scrollbar did not move")
+				}
+				tt.Press(vx, vy)
+				tt.Move(vx, box.Y+box.H*.65)
+				tt.Release(vx, box.Y+box.H*.65)
+				tt.Move(10, 10)
+				if baseline.RGBAAt(int(vx), int(vy)) == tt.Image().RGBAAt(int(vx), int(vy)) {
+					t.Fatal("vertical scrollbar did not move")
+				}
+				if a.editorText() != text || a.code.ReadOnly == editing {
+					t.Fatal("scrolling changed the editor content or editing mode")
+				}
+			})
+		}
+	}
+}
+
+func editorPixelContrast(frame *image.RGBA, x, y int) float64 {
+	luminance := func(r, g, b uint8) float64 {
+		linear := func(value uint8) float64 {
+			s := float64(value) / 255
+			if s <= .04045 {
+				return s / 12.92
+			}
+			return math.Pow((s+.055)/1.055, 2.4)
+		}
+		return .2126*linear(r) + .7152*linear(g) + .0722*linear(b)
+	}
+	pixel := frame.RGBAAt(x, y)
+	bg := codeTheme.Background
+	a, b := luminance(pixel.R, pixel.G, pixel.B), luminance(bg.R, bg.G, bg.B)
+	return (math.Max(a, b) + .05) / (math.Min(a, b) + .05)
+}
+
 func TestSettingsDialogHasEqualSideInsets(t *testing.T) {
 	for _, password := range []bool{false, true} {
 		t.Run(fmt.Sprintf("password-%t", password), func(t *testing.T) {

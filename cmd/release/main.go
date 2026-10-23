@@ -122,14 +122,18 @@ func build(args []string) error {
 	if err != nil {
 		return err
 	}
+	var config map[string]any
+	if err = json.Unmarshal(original, &config); err != nil {
+		return err
+	}
+	buildVersion, _ := config["version"].(string)
 	if *version != "" {
-		if !validVersion(*version) {
-			return errors.New("invalid version")
-		}
-		var config map[string]any
-		if err = json.Unmarshal(original, &config); err != nil {
-			return err
-		}
+		buildVersion = *version
+	}
+	if !validVersion(buildVersion) {
+		return errors.New("invalid version")
+	}
+	if *version != "" {
 		config["version"] = *version
 		data, _ := json.MarshalIndent(config, "", "  ")
 		if err = os.WriteFile("mygo.json", append(data, '\n'), 0o644); err != nil {
@@ -146,18 +150,21 @@ func build(args []string) error {
 	}
 	cmd := exec.Command("go", command...)
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return buildWindowsInstallers(*platform)
 }
 
 func validVersion(v string) bool {
-	return regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`).MatchString(v)
+	return regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(v)
 }
 
 func pack(args []string) error {
 	flags := flag.NewFlagSet("pack", flag.ContinueOnError)
 	platform := flags.String("platform", runtime.GOOS+"-"+runtime.GOARCH, "OS-architecture")
 	version := flags.String("version", "", "Release version")
-	tag := flags.String("tag", "", "GitHub release tag, pre-release for beta")
+	tag := flags.String("tag", "", "Formal GitHub release tag (v<version>)")
 	unsigned := flags.Bool("unsigned", false, "Create a portable ZIP without an automatic-update manifest")
 	keyPath := flags.String("key", ".keys/update-private.key", "Private key path when not using GIST_UPDATE_PRIVATE_KEY")
 	source := flags.String("source", "", "App executable or .app directory")
@@ -171,7 +178,7 @@ func pack(args []string) error {
 	if *tag == "" {
 		*tag = "v" + *version
 	}
-	if *tag != "pre-release" && *tag != "v"+*version {
+	if *tag != "v"+*version {
 		return errors.New("tag does not match version")
 	}
 	if !regexp.MustCompile(`^(windows|darwin|linux)-(amd64|arm64)$`).MatchString(*platform) {

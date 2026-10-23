@@ -13,14 +13,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/Oranjekop/GistManager/internal/storage"
 )
 
 // PublicKey optionally enables signed manifests for custom release feeds.
@@ -45,7 +42,6 @@ type Envelope struct {
 
 type State struct {
 	Status            string
-	Channel           string
 	Current           string
 	Available         string
 	Message           string
@@ -58,7 +54,7 @@ type Service struct {
 	API      string
 	Key      string
 	Platform string
-	path     string
+	dir      string
 	state    State
 	manifest Manifest
 	envelope Envelope
@@ -69,19 +65,8 @@ type Service struct {
 
 func New(dir, version string) *Service {
 	s := &Service{HTTP: &http.Client{Timeout: 15 * time.Minute}, API: githubAPI,
-		Key: PublicKey, Platform: runtime.GOOS + "-" + runtime.GOARCH, path: filepath.Join(dir, "updater.json")}
-	s.state = State{Status: "idle", Channel: "stable", Current: version}
-	if strings.Contains(version, "-") {
-		s.state.Channel = "beta"
-	}
-	var settings struct {
-		Channel string `json:"channel"`
-	}
-	if data, err := os.ReadFile(s.path); err == nil && json.Unmarshal(data, &settings) == nil && settings.Channel == "beta" {
-		s.state.Channel = "beta"
-	} else if err == nil && settings.Channel == "stable" {
-		s.state.Channel = "stable"
-	}
+		Key: PublicKey, Platform: runtime.GOOS + "-" + runtime.GOARCH, dir: dir}
+	s.state = State{Status: "idle", Current: version}
 	return s
 }
 
@@ -92,27 +77,7 @@ func (s *Service) State() State {
 }
 
 func (s *Service) DownloadPage() string {
-	if s.State().Channel == "beta" {
-		return "https://github.com/" + Repository + "/releases/tag/pre-release"
-	}
 	return "https://github.com/" + Repository + "/releases/latest"
-}
-
-func (s *Service) SetChannel(channel string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if channel != "beta" && channel != "stable" {
-		return errors.New("未知更新通道")
-	}
-	if s.busy {
-		return errors.New("请等待当前更新操作完成")
-	}
-	if err := storage.WriteJSON(s.path, map[string]string{"channel": channel}); err != nil {
-		return err
-	}
-	s.state = State{Status: "idle", Current: s.state.Current, Channel: channel}
-	s.discardUpdate()
-	return nil
 }
 
 // Called with mu held and no download in progress.
@@ -159,11 +124,11 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		}
 	}
 	current := s.State()
-	endpoint := s.API + "/releases/latest"
-	if current.Channel == "beta" {
-		endpoint = s.API + "/releases/tags/pre-release"
+	release, err := s.release(ctx, s.API+"/releases/latest")
+	if err != nil {
+		return err
 	}
-	release, err := s.release(ctx, endpoint)
+	version, err := release.version()
 	if err != nil {
 		return err
 	}
@@ -175,10 +140,6 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		}
 	}
 	if feedURL == "" {
-		version, versionErr := release.version(current.Channel)
-		if versionErr != nil {
-			return versionErr
-		}
 		if !isUpdateAvailable(current, version) {
 			s.mu.Lock()
 			s.state.Status, s.state.Message = "latest", "当前已是最新版本"
@@ -212,8 +173,8 @@ func (s *Service) Check(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	if current.Channel == "stable" && strings.Contains(manifest.Version, "-") {
-		return errors.New("正式版通道返回了测试版本")
+	if manifest.Version != version {
+		return errors.New("更新清单与正式发布版本不匹配")
 	}
 	available := isUpdateAvailable(current, manifest.Version)
 	s.mu.Lock()
@@ -228,11 +189,9 @@ func (s *Service) Check(ctx context.Context) (err error) {
 }
 
 func isUpdateAvailable(current State, candidate string) bool {
-	if current.Channel == "beta" && !strings.Contains(current.Current, "-") {
-		return candidate != current.Current
-	}
-	if current.Channel == "stable" && strings.Contains(current.Current, "-") {
-		return candidate != current.Current
+	// Older installations with a nonstandard version can move to a formal release.
+	if !versionPattern.MatchString(current.Current) {
+		return true
 	}
 	return Compare(candidate, current.Current) > 0
 }
@@ -260,7 +219,7 @@ func Verify(envelope Envelope, key, platform string) (Manifest, error) {
 	}
 	u, err := url.Parse(manifest.URL)
 	hash, hashErr := hex.DecodeString(manifest.SHA256)
-	if err != nil || u.Scheme != "https" || u.Host == "" || manifest.Platform != platform || manifest.Version == "" || manifest.Size <= 0 || manifest.Size > maxDownload || hashErr != nil || len(hash) != sha256.Size {
+	if err != nil || u.Scheme != "https" || u.Host == "" || manifest.Platform != platform || !versionPattern.MatchString(manifest.Version) || manifest.Size <= 0 || manifest.Size > maxDownload || hashErr != nil || len(hash) != sha256.Size {
 		return Manifest{}, errors.New("更新清单无效或平台不匹配")
 	}
 	return manifest, nil
@@ -312,7 +271,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载失败 (HTTP %d)", resp.StatusCode)
 	}
-	f, err := os.CreateTemp(filepath.Dir(s.path), "native-update-*.zip")
+	f, err := os.CreateTemp(s.dir, "native-update-*.zip")
 	if err != nil {
 		return err
 	}
@@ -373,22 +332,16 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 }
 
 func Compare(a, b string) int {
-	core := func(v string) ([3]int, string) {
-		parts := strings.SplitN(strings.TrimPrefix(v, "v"), "-", 2)
+	core := func(v string) [3]int {
 		var nums [3]int
-		for i, p := range strings.Split(parts[0], ".") {
+		for i, p := range strings.Split(strings.TrimPrefix(v, "v"), ".") {
 			if i < 3 {
 				nums[i], _ = strconv.Atoi(p)
 			}
 		}
-		pre := ""
-		if len(parts) == 2 {
-			pre = parts[1]
-		}
-		return nums, pre
+		return nums
 	}
-	x, xp := core(a)
-	y, yp := core(b)
+	x, y := core(a), core(b)
 	for i := range x {
 		if x[i] < y[i] {
 			return -1
@@ -397,38 +350,5 @@ func Compare(a, b string) int {
 			return 1
 		}
 	}
-	if xp == yp {
-		return 0
-	}
-	if xp == "" {
-		return 1
-	}
-	if yp == "" {
-		return -1
-	}
-	xs, ys := strings.Split(xp, "."), strings.Split(yp, ".")
-	for i := 0; i < min(len(xs), len(ys)); i++ {
-		if xs[i] == ys[i] {
-			continue
-		}
-		xn, xe := strconv.Atoi(xs[i])
-		yn, ye := strconv.Atoi(ys[i])
-		if xe == nil && ye == nil {
-			if xn < yn {
-				return -1
-			}
-			return 1
-		}
-		if xe == nil {
-			return -1
-		}
-		if ye == nil {
-			return 1
-		}
-		return strings.Compare(xs[i], ys[i])
-	}
-	if len(xs) < len(ys) {
-		return -1
-	}
-	return 1
+	return 0
 }

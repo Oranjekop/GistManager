@@ -391,7 +391,16 @@ func (a *App) workspace(c *ui.Context) {
 		})
 		a.code.ReadOnly, a.code.SoftWrap, a.code.NoScrollPastEnd, a.code.Label = !a.editing || a.busy, a.wrap, true, "代码编辑器"
 		a.code.Theme = codeTheme
-		editor.View(c, a.code).Grow(1).FillWidth().MinHeight(100)
+		// MyGo's editor reads scrollbar colors while painting, from the
+		// window theme. Scope the lighter thumb to this dark code surface.
+		var scrollbar ui.Color
+		ui.Box(c).Grow(1).FillWidth().MinHeight(100).
+			Draw(func(p *ui.Painter, _ ui.Rect) {
+				scrollbar = p.Theme().Scrollbar
+				p.Theme().Scrollbar = darkPalette.text
+			}).
+			DrawOver(func(p *ui.Painter, _ ui.Rect) { p.Theme().Scrollbar = scrollbar }).
+			Children(func() { editor.View(c, a.code).Fill() })
 		ui.Row(c).Padding(10, 16).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Shrink(0).Children(func() {
 			if a.mode == "browse" {
 				if ui.Button(c, "复制 Raw").FontSize(12).Clicked() {
@@ -730,22 +739,6 @@ func (a *App) updateDialog(c *ui.Context) {
 		ui.Column(c).Width(440).MaxWidthPercent(100).Gap(16).Children(func() {
 			ui.Text(c, "软件更新").Bold().FontSize(22)
 			ui.Text(c, "当前版本 "+a.Version).TextColor(c.Theme().TextMuted)
-			ui.Row(c).Gap(8).Children(func() {
-				for _, option := range []struct{ label, channel string }{{"正式版", "stable"}, {"测试版", "beta"}} {
-					button := ui.Button(c, option.label).Disabled(a.updateBusy)
-					if a.updateState.Channel == option.channel {
-						button.Border(2, c.Theme().Accent)
-					}
-					if button.Clicked() && a.Updates != nil {
-						if err := a.Updates.SetChannel(option.channel); err != nil {
-							a.updateState.Message = err.Error()
-						} else {
-							a.updateState = a.Updates.State()
-							a.checkUpdates(true)
-						}
-					}
-				}
-			})
 			message := a.updateState.Message
 			if a.updateState.Status == "checking" {
 				message = "正在检查更新…"

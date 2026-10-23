@@ -3,7 +3,7 @@ name: Native build and release
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
+    tags: ['v*.*.*', '!v*.*.*-*']
   pull_request:
   workflow_dispatch:
 
@@ -21,7 +21,6 @@ jobs:
       publish: ${{ steps.meta.outputs.publish }}
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
-      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,27 +31,18 @@ jobs:
           VERSION=$(jq -r .version mygo.json)
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           PUBLISH=false
-          TAG=pre-release
-          PRERELEASE=true
+          TAG="v$VERSION"
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             if [[ "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
               echo "::error::Tag $GITHUB_REF_NAME does not match mygo.json version $VERSION."
               exit 1
             fi
             TAG="$GITHUB_REF_NAME"
-            PRERELEASE=false
             PUBLISH=true
-          elif [[ "$GITHUB_EVENT_NAME" != pull_request && "$GITHUB_REF" == refs/heads/main ]]; then
-            STABLE_TAG=$(git tag --points-at "$GITHUB_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-            if [[ -z "$STABLE_TAG" ]]; then
-              VERSION="$VERSION-beta.$GITHUB_RUN_NUMBER.${GITHUB_SHA:0:7}"
-              PUBLISH=true
-            fi
           fi
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test (${{ matrix.os }})
@@ -156,7 +146,6 @@ jobs:
         run: |
           TAG='${{ needs.prepare.outputs.tag }}'
           VERSION='${{ needs.prepare.outputs.version }}'
-          PRERELEASE='${{ needs.prepare.outputs.prerelease }}'
           for TARGET in windows-amd64 windows-arm64 darwin-amd64 darwin-arm64; do
             test -s "release/GistManager-$VERSION-$TARGET.zip"
             if [[ "$TARGET" == darwin-* ]]; then
@@ -167,18 +156,12 @@ jobs:
           done
           test "$(find release -maxdepth 1 -type f | wc -l)" -eq 8
           (cd release && sha256sum * > SHA256SUMS.txt)
-          LATEST=true
-          if [[ "$TAG" == pre-release ]]; then
-            git tag --force pre-release "$GITHUB_SHA"
-            git push origin refs/tags/pre-release --force
-            LATEST=false
-          fi
           NOTES=(--generate-notes)
           if [[ -f "docs/releases/$VERSION.md" ]]; then NOTES=(--notes-file "docs/releases/$VERSION.md"); fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --draft --prerelease="$PRERELEASE" --title "v$VERSION"
+            gh release edit "$TAG" --draft --prerelease=false --title "v$VERSION"
           else
-            gh release create "$TAG" --draft --verify-tag --prerelease="$PRERELEASE" --title "v$VERSION" "${NOTES[@]}"
+            gh release create "$TAG" --draft --verify-tag --prerelease=false --title "v$VERSION" "${NOTES[@]}"
           fi
           gh release upload "$TAG" release/* --clobber
-          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"
+          gh release edit "$TAG" --draft=false --prerelease=false --latest=true

@@ -52,21 +52,21 @@ func archiveFixture(t *testing.T, name, content string) []byte {
 	return data.Bytes()
 }
 
-func TestChannelsCheckDownloadAndTampering(t *testing.T) {
+func TestCheckDownloadAndTampering(t *testing.T) {
 	archive := archiveFixture(t, "GistManager.exe", "new native executable")
 	envelope, key := signedFixture(t, archive, "2.1.0")
 	dir := t.TempDir()
-	s := New(dir, "2.0.0-beta.2")
+	s := New(dir, "2.0.0")
 	s.Key = key
 	corrupt := false
 	s.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
 		var data []byte
 		switch {
 		case strings.Contains(r.URL.Path, "/releases/"):
-			if s.State().Channel == "beta" && !strings.HasSuffix(r.URL.Path, "/pre-release") {
-				t.Error("beta did not use rolling release")
+			if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+				t.Error("check did not use the latest formal release")
 			}
-			data = []byte(`{"assets":[{"name":"native-update-` + s.Platform + `.json","browser_download_url":"https://fixture.invalid/feed.json"}]}`)
+			data = []byte(`{"tag_name":"v2.1.0","assets":[{"name":"native-update-` + s.Platform + `.json","browser_download_url":"https://fixture.invalid/feed.json"}]}`)
 		case r.URL.Path == "/feed.json":
 			data, _ = json.MarshalIndent(envelope, "", "  ")
 		default:
@@ -77,9 +77,6 @@ func TestChannelsCheckDownloadAndTampering(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data))}, nil
 	})
-	if err := s.SetChannel("stable"); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -100,17 +97,12 @@ func TestChannelsCheckDownloadAndTampering(t *testing.T) {
 	if s.State().Status != "downloaded" {
 		t.Fatal(s.State())
 	}
-	if err := s.SetChannel("beta"); err != nil {
-		t.Fatal(err)
-	}
-	if s.archive != "" || s.State().Available != "" {
-		t.Fatal("old channel update retained")
-	}
-	if New(dir, "2.0.0").State().Channel != "beta" {
-		t.Fatal("channel not persisted")
-	}
+	oldArchive := s.archive
 	if err := s.Check(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldArchive); !os.IsNotExist(err) || s.archive != "" || s.State().Downloaded != 0 {
+		t.Fatal("checking again retained the previously downloaded update")
 	}
 	envelope.Payload[0] ^= 1
 	if _, err := Verify(envelope, key, s.Platform); err == nil {
@@ -161,7 +153,7 @@ func TestInstallVerifiedArchiveAndRejectTraversal(t *testing.T) {
 }
 
 func TestVersionOrderingAndKeylessChecks(t *testing.T) {
-	for _, pair := range [][2]string{{"2.0.1", "2.0.0"}, {"2.0.0", "2.0.0-beta.99"}, {"2.0.0-beta.10", "2.0.0-beta.9"}, {"2.0.0-beta.1.abc", "2.0.0-beta.1"}} {
+	for _, pair := range [][2]string{{"2.0.1", "2.0.0"}, {"2.1.0", "2.0.9"}, {"3.0.0", "2.99.99"}, {"2.0.10", "2.0.9"}} {
 		if Compare(pair[0], pair[1]) <= 0 || Compare(pair[1], pair[0]) >= 0 {
 			t.Fatal(pair)
 		}
@@ -174,33 +166,63 @@ func TestVersionOrderingAndKeylessChecks(t *testing.T) {
 	if err := s.Check(context.Background()); err != nil || s.State().Status != "latest" {
 		t.Fatal(err, s.State())
 	}
-	if s.SetChannel("invalid") == nil {
-		t.Fatal("accepted invalid channel")
+}
+
+func TestSignedUpdatesRejectNonformalReleases(t *testing.T) {
+	for _, test := range []struct {
+		name, manifestVersion string
+		metadata              release
+	}{
+		{"draft", "2.1.0", release{TagName: "v2.1.0", Draft: true}},
+		{"prerelease", "2.1.0", release{TagName: "v2.1.0", Prerelease: true}},
+		{"suffixed-tag", "2.1.0", release{TagName: "v2.1.0-beta.1"}},
+		{"suffixed-manifest", "2.1.0-beta.1", release{TagName: "v2.1.0"}},
+		{"different-manifest", "2.2.0", release{TagName: "v2.1.0"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			envelope, key := signedFixture(t, []byte("application"), test.manifestVersion)
+			s := New(t.TempDir(), "2.0.0")
+			s.Key = key
+			fixture := test.metadata
+			fixture.Assets = []releaseAsset{{Name: "native-update-" + s.Platform + ".json", URL: "https://fixture.invalid/feed.json"}}
+			s.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+				data, _ := json.Marshal(fixture)
+				if r.URL.Path == "/feed.json" {
+					data, _ = json.Marshal(envelope)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data))}, nil
+			})
+			if err := s.Check(context.Background()); err == nil || s.State().Status != "error" {
+				t.Fatal("nonformal signed release accepted", err, s.State())
+			}
+		})
 	}
 }
 
-func TestExplicitChannelSwitchesAndDowngrade(t *testing.T) {
+func TestFormalVersionSelectionAndLegacySettings(t *testing.T) {
 	for _, test := range []struct {
-		current, candidate, channel string
-		available                   bool
+		current, candidate string
+		available          bool
 	}{
-		{"2.0.0", "2.0.0-beta.10", "beta", true},
-		{"2.1.0-beta.3", "2.0.0", "stable", true},
-		{"2.0.0-beta.10", "2.0.0-beta.9", "beta", false},
-		{"2.0.0", "1.9.0", "stable", false},
-		{"2.0.0", "2.0.0", "stable", false},
+		{"2.0.0", "2.1.0", true},
+		{"2.1.0-beta.3", "2.0.0", true},
+		{"2.0.0", "1.9.0", false},
+		{"2.0.0", "2.0.0", false},
 	} {
 		t.Run(test.current+"_to_"+test.candidate, func(t *testing.T) {
 			envelope, key := signedFixture(t, []byte("package"), test.candidate)
-			s := New(t.TempDir(), test.current)
-			s.Key = key
-			if err := s.SetChannel(test.channel); err != nil {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "updater.json"), []byte(`{"channel":"beta"}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			s := New(dir, test.current)
+			s.Key = key
 			s.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
-				data := []byte(`{"assets":[{"name":"native-update-` + s.Platform + `.json","browser_download_url":"https://fixture.invalid/feed.json"}]}`)
+				data := []byte(`{"tag_name":"v` + test.candidate + `","assets":[{"name":"native-update-` + s.Platform + `.json","browser_download_url":"https://fixture.invalid/feed.json"}]}`)
 				if r.URL.Path == "/feed.json" {
 					data, _ = json.Marshal(envelope)
+				} else if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+					t.Fatal("legacy settings changed the formal-release endpoint", r.URL)
 				}
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data))}, nil
 			})
@@ -208,7 +230,7 @@ func TestExplicitChannelSwitchesAndDowngrade(t *testing.T) {
 				t.Fatal(err)
 			}
 			if got := s.State().Status == "available"; got != test.available {
-				t.Fatalf("wrong channel switch result: %+v", s.State())
+				t.Fatalf("wrong formal-version selection: %+v", s.State())
 			}
 		})
 	}
@@ -216,31 +238,22 @@ func TestExplicitChannelSwitchesAndDowngrade(t *testing.T) {
 
 func TestInstallerOnlyReleases(t *testing.T) {
 	for _, test := range []struct {
-		current, tag, name, channel, status, available string
+		current, tag, status, available string
 	}{
-		{"1.0.0", "v1.0.0", "v1.0.0", "stable", "latest", ""},
-		{"1.0.0", "v1.0.1", "v1.0.1", "stable", "manual", "1.0.1"},
-		{"1.0.1", "v1.0.0", "v1.0.0", "stable", "latest", ""},
-		{"1.0.0-beta.1", "v1.0.0", "v1.0.0", "stable", "manual", "1.0.0"},
-		{"1.0.0", "pre-release", "v1.0.0-beta.2.abc", "beta", "manual", "1.0.0-beta.2.abc"},
-		{"1.0.0-beta.2.abc", "pre-release", "v1.0.0-beta.2.abc", "beta", "latest", ""},
+		{"1.0.0", "v1.0.0", "latest", ""},
+		{"1.0.0", "v1.0.1", "manual", "1.0.1"},
+		{"1.0.1", "v1.0.0", "latest", ""},
+		{"1.0.0-beta.1", "v1.0.0", "manual", "1.0.0"},
 	} {
-		t.Run(test.current+"_to_"+test.name, func(t *testing.T) {
+		t.Run(test.current+"_to_"+test.tag, func(t *testing.T) {
 			_, key := signedFixture(t, []byte("unused"), "1.0.0")
 			s := New(t.TempDir(), test.current)
 			s.Key = key
-			if err := s.SetChannel(test.channel); err != nil {
-				t.Fatal(err)
-			}
 			s.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
-				expected := "/releases/latest"
-				if test.channel == "beta" {
-					expected = "/releases/tags/pre-release"
-				}
-				if !strings.HasSuffix(r.URL.Path, expected) {
+				if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
 					t.Fatal("unexpected update request", r.URL)
 				}
-				data, _ := json.Marshal(map[string]any{"tag_name": test.tag, "name": test.name, "assets": []any{}})
+				data, _ := json.Marshal(map[string]any{"tag_name": test.tag, "assets": []any{}})
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data))}, nil
 			})
 			if err := s.Check(context.Background()); err != nil {

@@ -52,7 +52,7 @@ func (s *Service) StartInstaller() error {
 	}
 	_ = probe.Close()
 	_ = os.Remove(probe.Name())
-	dir, err := os.MkdirTemp(filepath.Dir(s.path), "update-helper-*")
+	dir, err := os.MkdirTemp(s.dir, "update-helper-*")
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func verifyPlan(ctx context.Context, plan Plan, key string, client *http.Client)
 	if len(plan.Envelope.Payload) != 0 || plan.Envelope.Signature != "" {
 		return Verify(plan.Envelope, key, platform)
 	}
-	if plan.Tag != "v"+plan.Manifest.Version && plan.Tag != "pre-release" || !versionPattern.MatchString(plan.Manifest.Version) {
+	if plan.Tag != "v"+plan.Manifest.Version || !versionPattern.MatchString(plan.Manifest.Version) {
 		return Manifest{}, errors.New("更新计划包含无效的版本")
 	}
 	// The API origin is fixed here: a local plan cannot supply its own authority.
@@ -114,11 +114,7 @@ func verifyPlan(ctx context.Context, plan Plan, key string, client *http.Client)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("安装前无法确认 GitHub 发布信息，请重新检查更新: %w", err)
 	}
-	channel := "stable"
-	if plan.Tag == "pre-release" {
-		channel = "beta"
-	}
-	version, err := r.version(channel)
+	version, err := r.version()
 	if err != nil || r.TagName != plan.Tag || version != plan.Manifest.Version {
 		return Manifest{}, errors.New("发布版本已变化，请重新检查更新")
 	}
