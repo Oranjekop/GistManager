@@ -44,7 +44,6 @@ type Settings struct {
 type Options struct {
 	CurrentPassword  string
 	NewPassword      string
-	ClearPassword    bool
 	LockEnabled      bool
 	BiometricEnabled bool
 }
@@ -179,6 +178,27 @@ func (s *Service) ClearPasswordWithBiometric(ctx context.Context, owner uintptr)
 	return s.clearPassword()
 }
 
+func (s *Service) ClearPasswordWithPassword(ctx context.Context, password string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state().Locked {
+		return ErrLocked
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.settings.PasswordHash == "" {
+		return errors.New("尚未设置程序密码")
+	}
+	if !verify(password, s.settings) {
+		return errors.New("当前程序密码不正确")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.clearPassword()
+}
+
 func (s *Service) clearPassword() error {
 	settings := s.settings
 	settings.PasswordHash, settings.PasswordSalt = "", ""
@@ -202,23 +222,20 @@ func (s *Service) Configure(ctx context.Context, options Options) error {
 	if s.state().Locked {
 		return ErrLocked
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	settings := s.settings
 	if settings.PasswordHash != "" && !verify(options.CurrentPassword, settings) {
-		return errors.New("当前解锁密码不正确")
-	}
-	if options.ClearPassword {
-		if options.NewPassword != "" {
-			return errors.New("清除密码时不能同时设置新密码")
-		}
-		return s.clearPassword()
+		return errors.New("当前程序密码不正确")
 	}
 	if options.NewPassword != "" && utf8.RuneCountInString(options.NewPassword) < 6 {
-		return errors.New("新的解锁密码至少需要 6 位")
+		return errors.New("程序密码至少需要 6 位")
 	}
 	if options.LockEnabled && settings.PasswordHash == "" && options.NewPassword == "" {
-		return errors.New("请先设置至少 6 位的软件解锁密码")
+		return errors.New("请先设置至少 6 位的程序密码")
 	}
-	if options.BiometricEnabled {
+	if options.BiometricEnabled && !settings.BiometricEnabled {
 		available, reason := s.biometric.Available(ctx)
 		if !available {
 			return errors.New(reason)
@@ -238,6 +255,9 @@ func (s *Service) Configure(ctx context.Context, options Options) error {
 	}
 	settings.LockEnabled = options.LockEnabled
 	settings.BiometricEnabled = options.LockEnabled && options.BiometricEnabled
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return s.saveSettings(settings)
 }
 

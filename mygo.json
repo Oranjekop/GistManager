@@ -1,7 +1,7 @@
 {
   "name": "Gist管理器",
   "identifier": "com.perzikkop.gist-manager",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": ".",
   "out": "dist",
   "icon": "resources/icon.png",

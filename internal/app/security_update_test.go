@@ -76,7 +76,7 @@ func TestAutomaticAuthenticationOncePerLockAndManualRetry(t *testing.T) {
 	if biometric.attempts != 2 || !a.Security.State().Locked {
 		t.Fatal("manual retry failed")
 	}
-	fill(t, tt, "软件解锁密码", "fixture-password")
+	fill(t, tt, "输入程序密码", "fixture-password")
 	click(t, tt, "解锁")
 	if a.Security.State().Locked || a.user == nil {
 		t.Fatal("password fallback failed", a.issue)
@@ -140,12 +140,12 @@ func TestForgottenPasswordRecoveryFromLockedScreen(t *testing.T) {
 	click(t, tt, "忘记密码")
 	assertCenteredDialog(t, tt, "密码恢复对话框", 1000, 680)
 	snapshot(t, tt, "password-recovery-light.png")
-	click(t, tt, "验证身份并清除密码")
+	click(t, tt, "验证并清除密码")
 	if !a.recoveryOpen || a.recoveryIssue == "" || !a.Security.State().Locked || !a.Security.State().HasPassword {
 		t.Fatal("cancelled recovery changed the password")
 	}
 	biometric.verified = true
-	click(t, tt, "验证身份并清除密码")
+	click(t, tt, "验证并清除密码")
 	if a.recoveryOpen || a.Security.State().HasPassword || a.Security.State().Locked || a.user == nil || a.current == nil {
 		t.Fatal("verified recovery did not restore the workspace", a.recoveryIssue)
 	}
@@ -155,6 +155,13 @@ func TestForgottenPasswordRecoveryFromLockedScreen(t *testing.T) {
 	}
 	if biometric.attempts != 2 {
 		t.Fatal("recovery reused a previous OS verification")
+	}
+	if a.securityNotice == "" || !tt.HasText("程序密码已清除") {
+		t.Fatal("workspace loading hid the recovery result")
+	}
+	click(t, tt, "知道了")
+	if a.securityNotice != "" {
+		t.Fatal("could not dismiss the recovery result")
 	}
 }
 
@@ -167,20 +174,28 @@ func TestClearPasswordSettingsFlow(t *testing.T) {
 	a.Start()
 	tt := ui.NewTester(a.View, 1000, 680)
 	click(t, tt, "系统设置")
-	click(t, tt, "清除程序密码")
-	if tt.HasText("确认新密码") || a.settingsForm.LockEnabled || a.settingsForm.BiometricEnabled {
-		t.Fatal("clear-password form still asks for a new password or enables locking")
+	click(t, tt, "清除密码")
+	if tt.HasText("确认新密码") || !a.settingsForm.LockEnabled || !a.Security.State().HasPassword {
+		t.Fatal("opening password removal changed security preferences")
 	}
-	assertCenteredDialog(t, tt, "系统设置对话框", 1000, 680)
+	assertCenteredDialog(t, tt, "密码恢复对话框", 1000, 680)
 	snapshot(t, tt, "clear-password-settings-light.png")
-	click(t, tt, "保存设置")
-	if !a.settingsOpen || a.settingsIssue == "" || !a.Security.State().HasPassword {
+	click(t, tt, "验证并清除密码")
+	if !a.recoveryOpen || a.recoveryIssue == "" || !a.Security.State().HasPassword {
 		t.Fatal("cleared password without authentication")
 	}
-	fill(t, tt, "当前密码", "fixture-password")
-	click(t, tt, "保存设置")
-	if a.settingsOpen || a.Security.State().HasPassword || a.Security.State().LockEnabled || a.settingsForm.CurrentPassword != "" {
-		t.Fatal("clear-password settings were not saved", a.settingsIssue)
+	fill(t, tt, "当前程序密码", "wrong-password")
+	click(t, tt, "验证并清除密码")
+	if !a.recoveryOpen || a.recoveryIssue == "" || !a.Security.State().HasPassword || a.recoveryPassword != "" {
+		t.Fatal("wrong password cleared security or retained the credential")
+	}
+	fill(t, tt, "当前程序密码", "fixture-password")
+	click(t, tt, "验证并清除密码")
+	if a.recoveryOpen || !a.settingsOpen || a.Security.State().HasPassword || a.Security.State().LockEnabled || a.recoveryPassword != "" {
+		t.Fatal("password removal did not refresh settings", a.recoveryIssue)
+	}
+	if biometric.attempts != 0 || !tt.HasText("程序密码已清除") || !tt.HasText("设置密码") {
+		t.Fatal("password removal used the wrong method or hid its result")
 	}
 }
 
@@ -193,11 +208,143 @@ func TestForgottenPasswordRecoveryFromSettings(t *testing.T) {
 	a.Start()
 	tt := ui.NewTester(a.View, 1000, 680)
 	click(t, tt, "系统设置")
-	click(t, tt, "清除程序密码")
-	click(t, tt, "忘记密码？使用系统身份验证")
-	click(t, tt, "验证身份并清除密码")
-	if a.recoveryOpen || a.settingsOpen || a.Security.State().HasPassword {
+	click(t, tt, "清除密码")
+	click(t, tt, "系统身份验证")
+	snapshot(t, tt, "clear-password-system-auth-light.png")
+	click(t, tt, "验证并清除密码")
+	if a.recoveryOpen || !a.settingsOpen || a.Security.State().HasPassword || biometric.attempts != 1 {
 		t.Fatal("settings biometric recovery failed", a.recoveryIssue)
+	}
+}
+
+func TestCancellingPasswordActionsPreservesSettingsDrafts(t *testing.T) {
+	a := lockedFixture(t, &authFixture{available: true, verified: true}, false)
+	if err := a.Security.Unlock("fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	a.Start()
+	tt := ui.NewTester(a.View, 1000, 680)
+	click(t, tt, "系统设置")
+	click(t, tt, "启动时锁定应用")
+	if a.settingsForm.LockEnabled || !a.Security.State().LockEnabled {
+		t.Fatal("editing a preference saved it immediately")
+	}
+	click(t, tt, "清除密码")
+	fill(t, tt, "当前程序密码", "fixture-password")
+	click(t, tt, "取消")
+	if a.recoveryOpen || a.recoveryPassword != "" || !a.settingsOpen || a.settingsForm.LockEnabled || !a.Security.State().HasPassword {
+		t.Fatal("cancelling removal lost drafts or retained credentials")
+	}
+	click(t, tt, "修改密码")
+	fill(t, tt, "新密码", "discard-password")
+	click(t, tt, "返回设置")
+	if a.passwordOpen || a.passwordForm.NewPassword != "" || a.passwordConfirm != "" || a.settingsForm.LockEnabled {
+		t.Fatal("cancelling a password change lost drafts or retained credentials")
+	}
+	click(t, tt, "清除密码")
+	tt.Key(0, ui.KeyEscape)
+	if a.recoveryOpen || !a.settingsOpen || a.settingsForm.LockEnabled {
+		t.Fatal("Escape did not return to the settings draft")
+	}
+}
+
+func TestChangingPasswordKeepsPendingPreferencesSeparate(t *testing.T) {
+	a := lockedFixture(t, &authFixture{available: true, verified: true}, false)
+	if err := a.Security.Unlock("fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	a.Start()
+	tt := ui.NewTester(a.View, 1000, 680)
+	click(t, tt, "系统设置")
+	click(t, tt, "启动时锁定应用")
+	click(t, tt, "修改密码")
+	fill(t, tt, "当前程序密码", "fixture-password")
+	fill(t, tt, "新密码", "new-password")
+	fill(t, tt, "确认新密码", "mismatch")
+	click(t, tt, "保存新密码")
+	if !a.passwordOpen || !tt.HasText("两次输入的新密码不一致") {
+		t.Fatal("password mismatch was not explained")
+	}
+	fill(t, tt, "确认新密码", "new-password")
+	click(t, tt, "保存新密码")
+	if a.passwordOpen || !a.settingsOpen || !a.Security.State().LockEnabled || a.settingsForm.LockEnabled {
+		t.Fatal("password change saved or discarded a pending lock preference", a.passwordIssue)
+	}
+	if a.passwordForm.NewPassword != "" || a.passwordConfirm != "" || !tt.HasText("程序密码已更新") {
+		t.Fatal("password change kept drafts or hid its result")
+	}
+	fill(t, tt, "当前程序密码", "new-password")
+	click(t, tt, "保存设置")
+	if a.settingsOpen || a.Security.State().LockEnabled || !a.Security.State().HasPassword {
+		t.Fatal("disabling startup lock removed the password", a.settingsIssue)
+	}
+	if err := a.Security.Configure(context.Background(), security.Options{CurrentPassword: "fixture-password"}); err == nil {
+		t.Fatal("old password still controls settings")
+	}
+}
+
+func TestPasswordActionsCannotBeDismissedOrRepeatedWhileSaving(t *testing.T) {
+	a := lockedFixture(t, &authFixture{available: true, verified: true}, false)
+	if err := a.Security.Unlock("fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	a.Start()
+	tt := ui.NewTester(a.View, 1000, 680)
+	click(t, tt, "系统设置")
+	click(t, tt, "清除密码")
+	click(t, tt, "系统身份验证")
+	var queue []func()
+	a.async = func(fn func()) { queue = append(queue, fn) }
+	click(t, tt, "验证并清除密码")
+	a.recoverPassword()
+	click(t, tt, "取消")
+	tt.Key(0, ui.KeyEscape)
+	if !a.recoveryOpen || !a.recoveryBusy || len(queue) != 1 {
+		t.Fatal("verification was duplicated or its busy dialog was dismissed")
+	}
+	snapshot(t, tt, "clear-password-busy-light.png")
+	queue[0]()
+	tt.Frame()
+	if a.recoveryBusy || a.recoveryOpen || a.Security.State().HasPassword {
+		t.Fatal("queued verification did not complete")
+	}
+}
+
+func TestSecurityFormsFitAcrossSizesAndThemes(t *testing.T) {
+	for _, size := range [][2]int{{1000, 680}, {1500, 940}} {
+		for _, dark := range []bool{false, true} {
+			a := lockedFixture(t, &authFixture{available: true, verified: true}, true)
+			if err := a.Security.Unlock("fixture-password"); err != nil {
+				t.Fatal(err)
+			}
+			a.Start()
+			tt := ui.NewTester(a.View, size[0], size[1])
+			tt.SetDark(dark)
+			click(t, tt, "系统设置")
+			assertCenteredDialog(t, tt, "系统设置对话框", float32(size[0]), float32(size[1]))
+			snapshot(t, tt, fmt.Sprintf("settings-active-%d-dark-%t.png", size[0], dark))
+			click(t, tt, "启动时锁定应用")
+			click(t, tt, "保存设置")
+			assertCenteredDialog(t, tt, "系统设置对话框", float32(size[0]), float32(size[1]))
+			snapshot(t, tt, fmt.Sprintf("settings-auth-%d-dark-%t.png", size[0], dark))
+			click(t, tt, "修改密码")
+			assertCenteredDialog(t, tt, "程序密码对话框", float32(size[0]), float32(size[1]))
+			dialog := findBox(t, tt, "程序密码对话框")
+			field := findBox(t, tt, "新密码")
+			left, right := field.X-dialog.X, dialog.X+dialog.W-field.X-field.W
+			if math.Abs(float64(left-right)) > 1 || left < 16 {
+				t.Fatal("password dialog has unequal side insets", left, right)
+			}
+			snapshot(t, tt, fmt.Sprintf("password-change-%d-dark-%t.png", size[0], dark))
+			click(t, tt, "返回设置")
+			click(t, tt, "清除密码")
+			click(t, tt, "验证并清除密码")
+			assertCenteredDialog(t, tt, "密码恢复对话框", float32(size[0]), float32(size[1]))
+			snapshot(t, tt, fmt.Sprintf("password-remove-%d-dark-%t.png", size[0], dark))
+			click(t, tt, "系统身份验证")
+			assertCenteredDialog(t, tt, "密码恢复对话框", float32(size[0]), float32(size[1]))
+			snapshot(t, tt, fmt.Sprintf("password-recover-%d-dark-%t.png", size[0], dark))
+		}
 	}
 }
 

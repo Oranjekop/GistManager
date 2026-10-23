@@ -4,14 +4,14 @@
 
 ## 下载与安装
 
-在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.2**。
+在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载适合设备的安装包。当前正式版本为 **v1.0.3**。
 
-| 系统 | 架构 | v1.0.2 安装包 |
+| 系统 | 架构 | v1.0.3 安装包 |
 | --- | --- | --- |
-| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.2-windows-amd64.exe` |
-| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.2-windows-arm64.exe` |
-| macOS 12 及以上 | Intel | `GistManager-1.0.2-darwin-amd64.dmg` |
-| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.2-darwin-arm64.dmg` |
+| Windows 10 / 11 | x64 | `GistManager-Setup-1.0.3-windows-amd64.exe` |
+| Windows 10 / 11 | ARM64 | `GistManager-Setup-1.0.3-windows-arm64.exe` |
+| macOS 12 及以上 | Intel | `GistManager-1.0.3-darwin-amd64.dmg` |
+| macOS 12 及以上 | Apple Silicon | `GistManager-1.0.3-darwin-arm64.dmg` |
 
 Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
 
@@ -37,7 +37,9 @@ macOS 包使用 ad-hoc 签名，首次打开可能需要在“系统设置 → �
 
 Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后，可通过软件密码或 Windows Hello / PIN、Touch ID 解锁；启用系统身份验证后，每次启动或锁定会自动请求一次验证，取消后仍可手动重试或输入软件密码。系统身份验证是否可用取决于设备配置。锁定会清空工作区并取消进行中的请求。切换、刷新、锁定及退出前会提示处理未保存的修改。
 
-设置中的“清除程序密码”支持验证当前密码后清除。忘记密码时，可在锁定页点击“忘记密码”，或在设置中选择系统身份验证，通过 Windows Hello / PIN 或 Touch ID 验证后清除，无需输入原密码。清除后关闭启动锁定和自动身份验证，保留 GitHub Token 与 Gist 数据；取消或验证失败不会清除密码。
+系统设置将程序密码与启动锁定分开管理。首次设置密码后开启启动锁定；修改密码不会改变锁定设置，关闭启动锁定也会保留程序密码。保存解锁方式的变更需要验证当前程序密码。
+
+在“程序密码”区域点击“清除密码”，可选择输入当前密码或使用系统身份验证。忘记密码时，也可在锁定页点击“忘记密码”，通过 Windows Hello / PIN 或 Touch ID 验证后清除，无需输入原密码，也无需事先开启自动身份验证。清除后关闭启动锁定和自动身份验证，保留 GitHub Token 与 Gist 数据；取消或验证失败不会清除密码。
 
 应用会自动检查更新，也可点击“检查更新”选择正式版或测试版通道。发现新版本后，点击“下载更新”，下载适合当前系统和架构的便携包，通过 SHA-256 校验后点击“重启并安装”。安装前会再次向 GitHub 确认发布信息并校验文件，再替换应用并重新启动。未保存的修改会先提示处理；当前版本未提供适用的便携包时，可前往 GitHub 使用安装包更新。
 
@@ -68,23 +70,23 @@ go vet ./...
 本地构建：
 
 ```sh
-go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.2
-go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.2
+go run ./cmd/release build -platform windows/amd64,windows/arm64 -version 1.0.3
+go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -version 1.0.3
 ```
 
 输出位于 `dist/<系统>-<架构>/`。Windows 产出 NSIS 安装器；macOS 的应用签名与 DMG 打包需要在 Mac 上执行。
 
 [发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试，并构建四个平台的安装包及便携 ZIP。工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布产物，无需配置私钥或额外 Secret。
 
-- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.2`。
+- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.3`。
 - 测试版：推送 `main`，发布包含运行编号和提交哈希的滚动 `pre-release`；同一提交已有正式标签时跳过。
 - 全部测试、构建和产物校验通过后，才公开 Release。
 
 本地生成便携 ZIP：
 
 ```sh
-go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.2
-go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.2
+go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.3
+go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.3
 ```
 
 ## 结构

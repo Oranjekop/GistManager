@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Oranjekop/GistManager/internal/security"
 	"github.com/Oranjekop/GistManager/internal/update"
@@ -176,13 +177,14 @@ func TestLockSettingsAndBiometricFallback(t *testing.T) {
 	a := fixtureApp(t)
 	tt := ui.NewTester(a.View, 1500, 940)
 	click(t, tt, "系统设置")
-	click(t, tt, "启动时锁定应用")
+	click(t, tt, "设置密码")
 	fill(t, tt, "新密码", "native-password")
 	fill(t, tt, "确认新密码", "native-password")
-	click(t, tt, "保存设置")
-	if a.settingsOpen || !a.Security.State().LockEnabled {
-		t.Fatal("settings failed", a.settingsIssue)
+	click(t, tt, "设置并开启锁定")
+	if a.passwordOpen || !a.settingsOpen || !a.Security.State().LockEnabled {
+		t.Fatal("password setup failed", a.passwordIssue)
 	}
+	click(t, tt, "关闭")
 	click(t, tt, "立即锁定")
 	if a.current != nil || a.user != nil || len(a.gists) != 0 || !a.Security.State().Locked {
 		t.Fatal("lock did not clear workspace")
@@ -190,12 +192,12 @@ func TestLockSettingsAndBiometricFallback(t *testing.T) {
 	if tt.HasText("main.go") || !tt.HasText("工作区已锁定") {
 		t.Fatal("locked workspace is visible")
 	}
-	fill(t, tt, "软件解锁密码", "wrong")
+	fill(t, tt, "输入程序密码", "wrong")
 	click(t, tt, "解锁")
 	if !a.Security.State().Locked {
 		t.Fatal("wrong password unlocked")
 	}
-	fill(t, tt, "软件解锁密码", "native-password")
+	fill(t, tt, "输入程序密码", "native-password")
 	click(t, tt, "解锁")
 	if a.Security.State().Locked || a.user == nil || a.current == nil {
 		t.Fatal("password fallback did not resume", a.issue)
@@ -209,7 +211,7 @@ func TestNativeLayoutAndSnapshots(t *testing.T) {
 	a := fixtureApp(t)
 	for _, size := range [][2]float32{{1500, 940}, {1000, 680}} {
 		tt := ui.NewTester(a.View, int(size[0]), int(size[1]))
-		for _, label := range []string{"新建 Gist", "系统设置", "立即锁定", "代码编辑器", "自动换行"} {
+		for _, label := range []string{"新建 Gist", "系统设置", "启用锁定", "代码编辑器", "自动换行"} {
 			box, found := tt.Find(label)
 			if !found || box.X < 0 || box.Y < 0 || box.X+box.W > size[0]+1 || box.Y+box.H > size[1]+1 {
 				t.Fatalf("%s outside window %v: %+v", label, size, box)
@@ -232,6 +234,7 @@ func snapshot(t *testing.T, tt *ui.Tester, name string) {
 	if dir == "" {
 		return
 	}
+	tt.Advance(250 * time.Millisecond)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -242,6 +245,25 @@ func snapshot(t *testing.T, tt *ui.Tester, name string) {
 	defer f.Close()
 	if err = png.Encode(f, tt.Image()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEmptySearchCanReturnToTheList(t *testing.T) {
+	a := fixtureApp(t)
+	tt := ui.NewTester(a.View, 1000, 680)
+	current := a.current.ID
+	fill(t, tt, "搜索 Gist", "no-such-gist-fixture")
+	if !tt.HasText("没有匹配的 Gist") || a.current.ID != current {
+		t.Fatal("empty search lost the current workspace")
+	}
+	snapshot(t, tt, "search-empty-light.png")
+	click(t, tt, "清空搜索")
+	if a.search != "" || !tt.HasText("API 请求示例") || a.current.ID != current {
+		t.Fatal("clearing search did not restore the list")
+	}
+	click(t, tt, "API 请求示例")
+	if a.current.ID != "demo-2" {
+		t.Fatal("list could not select a Gist after clearing search")
 	}
 }
 
