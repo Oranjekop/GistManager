@@ -53,48 +53,57 @@ func TestGistCardTextStaysInItsRow(t *testing.T) {
 func TestGistHoverCoversTheCardAndPreservesRoundedCorners(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		for _, sidebar := range []float32{240, 300, 380} {
-			t.Run(fmt.Sprintf("dark-%t-width-%g", dark, sidebar), func(t *testing.T) {
-				a := fixtureApp(t)
-				a.sidebarWidth = sidebar
-				tt := ui.NewTester(a.View, 1500, 940)
-				tt.SetDark(dark)
-				selected := findBox(t, tt, "Gist 卡片 demo-1")
-				card := findBox(t, tt, "Gist 卡片 demo-2")
-				baseline := copyFrame(tt)
-				tt.Move(card.X+card.W/2, card.Y+card.H/2)
-				hovered := tt.Image()
-				for _, point := range [][2]float32{
-					{card.X + card.W/2, card.Y + 3},
-					{card.X + card.W/2, card.Y + card.H - 4},
-					{card.X + 3, card.Y + card.H/2},
-					{card.X + card.W - 4, card.Y + card.H/2},
-				} {
-					x, y := int(point[0]), int(point[1])
-					if baseline.RGBAAt(x, y) == hovered.RGBAAt(x, y) {
-						t.Fatalf("hover did not reach the card edge at (%d, %d)", x, y)
+			for _, offset := range []float32{0, .8} {
+				t.Run(fmt.Sprintf("dark-%t-width-%g-offset-%g", dark, sidebar, offset), func(t *testing.T) {
+					a := fixtureApp(t)
+					a.sidebarWidth = sidebar
+					view := func(c *ui.Context) {
+						ui.Column(c).Fill().Padding(offset, 0, 0, 0).Children(func() { a.View(c) })
 					}
-				}
-				for _, x := range []float32{card.X + 2, card.X + card.W - 3} {
-					for _, y := range []float32{card.Y + 2, card.Y + card.H - 3} {
-						if baseline.RGBAAt(int(x), int(y)) != hovered.RGBAAt(int(x), int(y)) {
-							t.Fatal("list hover leaked outside a rounded card corner", x, y)
+					tt := ui.NewTester(view, 1500, 940)
+					tt.SetDark(dark)
+					selected := findBox(t, tt, "Gist 卡片 demo-1")
+					card := findBox(t, tt, "Gist 卡片 demo-2")
+					baseline := copyFrame(tt)
+					tt.Move(card.X+card.W/2, card.Y+card.H/2)
+					hovered := tt.Image()
+					for _, point := range [][2]float32{
+						{card.X + card.W/2, card.Y + 3},
+						{card.X + card.W/2, card.Y + card.H - 4},
+						{card.X + 3, card.Y + card.H/2},
+						{card.X + card.W - 4, card.Y + card.H/2},
+					} {
+						x, y := int(point[0]), int(point[1])
+						if baseline.RGBAAt(x, y) == hovered.RGBAAt(x, y) {
+							t.Fatalf("hover did not reach the card edge at (%d, %d)", x, y)
 						}
 					}
-				}
-				assertPixelsUnchanged(t, baseline, hovered, image.Rect(
-					int(selected.X), int(selected.Y), int(selected.X+selected.W), int(selected.Y+selected.H),
-				), "hovering another card changed the selected card")
-				snapshot(t, tt, fmt.Sprintf("gist-hover-%g-dark-%t.png", sidebar, dark))
-				tt.Move(1490, 20)
-				assertPixelsUnchanged(t, baseline, tt.Image(), image.Rect(
-					int(card.X), int(card.Y), int(card.X+card.W), int(card.Y+card.H),
-				), "card hover remained after the pointer left")
-				click(t, tt, a.gists[0].Title())
-				tt.Key(0, ui.KeyDown)
-				if a.current.ID != "demo-2" {
-					t.Fatal("card styling broke keyboard selection", a.current.ID)
-				}
-			})
+					// Round toward the corner so pixel centers stay outside the
+					// antialiased edge, including macOS's fractional font metrics.
+					cornerXs := []int{int(math.Floor(float64(card.X))) + 2, int(math.Ceil(float64(card.X+card.W))) - 3}
+					cornerYs := []int{int(math.Floor(float64(card.Y))) + 2, int(math.Ceil(float64(card.Y+card.H))) - 3}
+					for _, x := range cornerXs {
+						for _, y := range cornerYs {
+							if baseline.RGBAAt(x, y) != hovered.RGBAAt(x, y) {
+								t.Fatal("list hover leaked outside a rounded card corner", x, y)
+							}
+						}
+					}
+					assertPixelsUnchanged(t, baseline, hovered, image.Rect(
+						int(selected.X), int(selected.Y), int(selected.X+selected.W), int(selected.Y+selected.H),
+					), "hovering another card changed the selected card")
+					snapshot(t, tt, fmt.Sprintf("gist-hover-%g-dark-%t-offset-%g.png", sidebar, dark, offset))
+					tt.Move(1490, 20)
+					assertPixelsUnchanged(t, baseline, tt.Image(), image.Rect(
+						int(card.X), int(card.Y), int(card.X+card.W), int(card.Y+card.H),
+					), "card hover remained after the pointer left")
+					click(t, tt, a.gists[0].Title())
+					tt.Key(0, ui.KeyDown)
+					if a.current.ID != "demo-2" {
+						t.Fatal("card styling broke keyboard selection", a.current.ID)
+					}
+				})
+			}
 		}
 	}
 }
