@@ -8,5 +8,6 @@ yarn-debug.log*
 yarn-error.log*
 /.cache/
 /.keys/
+/HANDOFF.md
 *.exe
 !resources/**/*.exe

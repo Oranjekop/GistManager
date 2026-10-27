@@ -15,12 +15,24 @@ BrandingText " "
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "创建桌面快捷方式"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
 !include "MUI2.nsh"
+!include "x64.nsh"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
+
+Function .onInit
+  ${If} ${IsNativeAMD64}
+    Return
+  ${EndIf}
+  ${If} ${IsNativeARM64}
+    Return
+  ${EndIf}
+  MessageBox MB_ICONSTOP "需要 64 位 Windows（x64 或 ARM64）。"
+  Abort
+FunctionEnd
 
 Section
   SetOutPath "$INSTDIR"

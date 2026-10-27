@@ -141,7 +141,7 @@ func build(args []string) error {
 		}
 		defer os.WriteFile("mygo.json", original, 0o644)
 	}
-	command := []string{"tool", "mygo", "build", "-platform", *platform}
+	command := []string{"tool", "mygo", "build", "-platform", expandBuildPlatforms(*platform)}
 	if *sign != "" {
 		command = append(command, "-sign", *sign)
 	}
@@ -154,6 +154,19 @@ func build(args []string) error {
 		return err
 	}
 	return buildWindowsInstallers(*platform)
+}
+
+func expandBuildPlatforms(platforms string) string {
+	var expanded []string
+	for _, target := range strings.Split(platforms, ",") {
+		target = strings.TrimSpace(target)
+		if target == "windows/universal" {
+			expanded = append(expanded, "windows/amd64", "windows/arm64")
+		} else {
+			expanded = append(expanded, target)
+		}
+	}
+	return strings.Join(expanded, ",")
 }
 
 func validVersion(v string) bool {

@@ -17,7 +17,7 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 )
 
-func fixtureApp(t *testing.T) *App {
+func fixtureApp(t testing.TB) *App {
 	t.Helper()
 	dir := t.TempDir()
 	secure, err := security.Open(dir, &DemoVault{}, DemoBiometric{})

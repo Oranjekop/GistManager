@@ -21,12 +21,17 @@ import (
 var windowsInstallerTemplate string
 
 type installerConfig struct {
-	Name, Identifier, Version, Out, Icon string
+	Name, Slug, Identifier, Version, Out, Icon string
 }
 
 func buildWindowsInstallers(platforms string) error {
 	var targets []string
 	for _, target := range strings.Split(platforms, ",") {
+		target = strings.TrimSpace(target)
+		if target == "windows/universal" {
+			targets = []string{"windows-universal"}
+			break
+		}
 		if strings.HasPrefix(target, "windows/") {
 			targets = append(targets, strings.ReplaceAll(target, "/", "-"))
 		}
@@ -71,8 +76,24 @@ func buildWindowsInstallers(platforms string) error {
 		if err != nil {
 			return err
 		}
-		output := filepath.Join(stage, config.Name+" Setup "+config.Version+" "+arch+".exe")
-		script, err := windowsInstallerScript(config, stage, output, iconPath)
+		name := config.Name + " Setup " + config.Version + " " + arch + ".exe"
+		if arch == "universal" {
+			name = config.Name + " Setup " + config.Version + ".exe"
+		}
+		output := filepath.Join(stage, name)
+		var script string
+		if arch == "universal" {
+			if err := os.MkdirAll(stage, 0o755); err != nil {
+				return err
+			}
+			root, absErr := filepath.Abs(config.Out)
+			if absErr != nil {
+				return absErr
+			}
+			script, err = windowsUniversalInstallerScript(config, root, output, iconPath)
+		} else {
+			script, err = windowsInstallerScript(config, stage, output, iconPath)
+		}
 		if err != nil {
 			return err
 		}
@@ -92,6 +113,28 @@ func buildWindowsInstallers(platforms string) error {
 }
 
 func windowsInstallerScript(config installerConfig, stage, output, icon string) (string, error) {
+	files, err := windowsPayloadFiles(config, stage, output)
+	if err != nil {
+		return "", err
+	}
+	return renderWindowsInstaller(config, files, output, icon), nil
+}
+
+func windowsUniversalInstallerScript(config installerConfig, root, output, icon string) (string, error) {
+	amd64, err := windowsPayloadFiles(config, filepath.Join(root, "windows-amd64"), output)
+	if err != nil {
+		return "", fmt.Errorf("x64 payload: %w", err)
+	}
+	arm64, err := windowsPayloadFiles(config, filepath.Join(root, "windows-arm64"), output)
+	if err != nil {
+		return "", fmt.Errorf("ARM64 payload: %w", err)
+	}
+	files := "  ${If} ${IsNativeARM64}\n" + arm64 +
+		"\n  ${Else}\n" + amd64 + "\n  ${EndIf}"
+	return renderWindowsInstaller(config, files, output, icon), nil
+}
+
+func windowsPayloadFiles(config installerConfig, stage, output string) (string, error) {
 	executable := config.Name + ".exe"
 	if _, err := os.Stat(filepath.Join(stage, executable)); err != nil {
 		return "", err
@@ -102,7 +145,14 @@ func windowsInstallerScript(config installerConfig, stage, output, icon string) 
 	}
 	var files strings.Builder
 	for _, entry := range entries {
-		if entry.Name() == filepath.Base(output) {
+		if entry.Name() == filepath.Base(output) ||
+			entry.Name() == config.Name+" Setup "+config.Version+" amd64.exe" ||
+			entry.Name() == config.Name+" Setup "+config.Version+" arm64.exe" {
+			continue
+		}
+		// MyGo 0.7 names its generated installers after the configured slug.
+		if config.Slug != "" && (entry.Name() == config.Slug+"-setup-"+config.Version+"-amd64.exe" ||
+			entry.Name() == config.Slug+"-setup-"+config.Version+"-arm64.exe") {
 			continue
 		}
 		flags := ""
@@ -111,6 +161,11 @@ func windowsInstallerScript(config installerConfig, stage, output, icon string) 
 		}
 		fmt.Fprintf(&files, "  File %s%s\n", flags, nsisQuote(filepath.Join(stage, entry.Name())))
 	}
+	return strings.TrimSuffix(files.String(), "\n"), nil
+}
+
+func renderWindowsInstaller(config installerConfig, files, output, icon string) string {
+	executable := config.Name + ".exe"
 	return strings.NewReplacer(
 		"@NAME@", nsisQuote(config.Name),
 		"@DISPLAY_NAME@", nsisEscape(config.Name),
@@ -120,8 +175,8 @@ func windowsInstallerScript(config installerConfig, stage, output, icon string) 
 		"@VERSION@", nsisQuote(config.Version),
 		"@OUTPUT@", nsisQuote(output),
 		"@ICON@", nsisQuote(icon),
-		"@FILES@", strings.TrimSuffix(files.String(), "\n"),
-	).Replace(windowsInstallerTemplate), nil
+		"@FILES@", files,
+	).Replace(windowsInstallerTemplate)
 }
 
 func nsisEscape(s string) string {

@@ -68,10 +68,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, platform: windows/amd64, target: windows-amd64 }
-          - { os: windows-latest, platform: windows/arm64, target: windows-arm64 }
-          - { os: macos-15-intel, platform: darwin/amd64, target: darwin-amd64 }
-          - { os: macos-15, platform: darwin/arm64, target: darwin-arm64 }
+          - { os: windows-latest, platform: windows/universal, target: windows-universal, updateOS: windows }
+          - { os: macos-15, platform: darwin/universal, target: darwin-universal, updateOS: darwin }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -82,42 +80,64 @@ jobs:
       - name: Build native application and installer
         shell: bash
         run: go run ./cmd/release build -platform '${{ matrix.platform }}' -version '${{ needs.prepare.outputs.version }}'
-      - name: Verify macOS bundle
+      - name: Verify Windows installer architecture selection
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GIST_TEST_INSTALLER: '1'
+        run: go test ./cmd/release -run '^TestUniversalInstallerInstallsNativePayload$' -count=1 -timeout 60s
+      - name: Build macOS applications for architecture-specific updates
+        if: runner.os == 'macOS'
+        shell: bash
+        run: go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -skip-dmg -version '${{ needs.prepare.outputs.version }}'
+      - name: Verify macOS bundles
         if: runner.os == 'macOS'
         shell: bash
         env:
-          TARGET: ${{ matrix.target }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          APP="dist/$TARGET/Gist管理器.app"
-          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "$VERSION"
-          test "$("$APP/Contents/MacOS/$EXECUTABLE" --version)" = "$VERSION"
-          ARCH=x86_64
-          if [[ "$TARGET" == darwin-arm64 ]]; then ARCH=arm64; fi
-          lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch "$ARCH"
-          codesign --verify --deep --strict --verbose=2 "$APP"
+          for ARCH in universal amd64 arm64; do
+            APP="dist/darwin-$ARCH/Gist管理器.app"
+            EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "$VERSION"
+            case "$ARCH" in
+              universal) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch x86_64 arm64
+                         test "$("$APP/Contents/MacOS/$EXECUTABLE" --version)" = "$VERSION" ;;
+              amd64) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch x86_64 ;;
+              arm64) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch arm64 ;;
+            esac
+            codesign --verify --deep --strict --verbose=2 "$APP"
+          done
       - name: Create portable archive
         shell: bash
-        run: go run ./cmd/release pack -unsigned -platform '${{ matrix.target }}' -version '${{ needs.prepare.outputs.version }}' -tag '${{ needs.prepare.outputs.tag }}'
+        env:
+          UPDATE_OS: ${{ matrix.updateOS }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          for ARCH in amd64 arm64; do
+            go run ./cmd/release pack -unsigned -platform "$UPDATE_OS-$ARCH" -version "$VERSION" -tag "$TAG"
+          done
       - name: Collect and verify release assets
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
+          UPDATE_OS: ${{ matrix.updateOS }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          shopt -s nullglob
           if [[ "$RUNNER_OS" == macOS ]]; then
-            INSTALLERS=(dist/"$TARGET"/*.dmg)
-            DESTINATION="GistManager-$VERSION-$TARGET.dmg"
+            SLUG=$(jq -r .slug mygo.json)
+            INSTALLER="dist/$TARGET/$SLUG-$VERSION.dmg"
+            DESTINATION="GistManager-$VERSION-macos.dmg"
           else
-            INSTALLERS=(dist/"$TARGET"/*Setup*.exe)
-            DESTINATION="GistManager-Setup-$VERSION-$TARGET.exe"
+            INSTALLER="dist/$TARGET/Gist管理器 Setup $VERSION.exe"
+            DESTINATION="GistManager-Setup-$VERSION-windows.exe"
           fi
-          test "${#INSTALLERS[@]}" -eq 1
-          cp "${INSTALLERS[0]}" "release/$DESTINATION"
+          cp "$INSTALLER" "release/$DESTINATION"
           test -s "release/$DESTINATION"
-          test -s "release/GistManager-$VERSION-$TARGET.zip"
+          for ARCH in amd64 arm64; do
+            test -s "release/GistManager-$VERSION-$UPDATE_OS-$ARCH.zip"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.target }}
@@ -148,13 +168,10 @@ jobs:
           VERSION='${{ needs.prepare.outputs.version }}'
           for TARGET in windows-amd64 windows-arm64 darwin-amd64 darwin-arm64; do
             test -s "release/GistManager-$VERSION-$TARGET.zip"
-            if [[ "$TARGET" == darwin-* ]]; then
-              test -s "release/GistManager-$VERSION-$TARGET.dmg"
-            else
-              test -s "release/GistManager-Setup-$VERSION-$TARGET.exe"
-            fi
           done
-          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 8
+          test -s "release/GistManager-Setup-$VERSION-windows.exe"
+          test -s "release/GistManager-$VERSION-macos.dmg"
+          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 6
           (cd release && sha256sum * > SHA256SUMS.txt)
           NOTES=(--generate-notes)
           if [[ -f "docs/releases/$VERSION.md" ]]; then NOTES=(--notes-file "docs/releases/$VERSION.md"); fi
