@@ -5,17 +5,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/Oranjekop/GistManager/internal/l10n"
 )
 
 const githubAPI = "https://api.github.com/repos/" + Repository
 
 var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-var errNoArchive = errors.New("此版本未提供适用于当前平台的便携更新包")
+var errNoArchive = l10n.Error("此版本未提供适用于当前平台的便携更新包")
 
 type releaseAsset struct {
 	Name   string `json:"name"`
@@ -47,7 +48,7 @@ func (s *Service) release(ctx context.Context, endpoint string) (release, error)
 func (r release) version() (string, error) {
 	version := strings.TrimPrefix(r.TagName, "v")
 	if r.Draft || r.Prerelease || r.TagName != "v"+version || !versionPattern.MatchString(version) {
-		return "", errors.New("更新服务未返回有效的正式版本")
+		return "", l10n.Error("更新服务未返回有效的正式版本")
 	}
 	return version, nil
 }
@@ -76,12 +77,12 @@ func (s *Service) releaseManifest(ctx context.Context, r release, version string
 		switch asset.Name {
 		case name:
 			if archive != nil {
-				return Manifest{}, errors.New("更新服务返回了重复的安装包")
+				return Manifest{}, l10n.Error("更新服务返回了重复的安装包")
 			}
 			archive = asset
 		case "SHA256SUMS.txt":
 			if checksums != nil {
-				return Manifest{}, errors.New("更新服务返回了重复的校验文件")
+				return Manifest{}, l10n.Error("更新服务返回了重复的校验文件")
 			}
 			checksums = asset
 		}
@@ -90,17 +91,17 @@ func (s *Service) releaseManifest(ctx context.Context, r release, version string
 		return Manifest{}, errNoArchive
 	}
 	if archive.URL != assetURL(r.TagName, name) || archive.Size <= 0 || archive.Size > maxDownload {
-		return Manifest{}, errors.New("更新包来源或大小无效")
+		return Manifest{}, l10n.Error("更新包来源或大小无效")
 	}
 	hash := ""
 	if archive.Digest != "" {
 		if !strings.HasPrefix(archive.Digest, "sha256:") || !validHash(strings.TrimPrefix(archive.Digest, "sha256:")) {
-			return Manifest{}, errors.New("更新包 SHA-256 摘要无效")
+			return Manifest{}, l10n.Error("更新包 SHA-256 摘要无效")
 		}
 		hash = strings.TrimPrefix(archive.Digest, "sha256:")
 	} else {
 		if checksums == nil || checksums.URL != assetURL(r.TagName, "SHA256SUMS.txt") {
-			return Manifest{}, errors.New("更新包缺少可信的 SHA-256 校验信息")
+			return Manifest{}, l10n.Error("更新包缺少可信的 SHA-256 校验信息")
 		}
 		data, err := s.get(ctx, checksums.URL, 1<<20)
 		if err != nil {
@@ -112,17 +113,17 @@ func (s *Service) releaseManifest(ctx context.Context, r release, version string
 				continue
 			}
 			if len(fields) != 2 || !validHash(fields[0]) {
-				return Manifest{}, errors.New("更新包校验文件格式无效")
+				return Manifest{}, l10n.Error("更新包校验文件格式无效")
 			}
 			if strings.TrimPrefix(fields[1], "*") == name {
 				if hash != "" {
-					return Manifest{}, errors.New("更新包校验文件包含重复条目")
+					return Manifest{}, l10n.Error("更新包校验文件包含重复条目")
 				}
 				hash = fields[0]
 			}
 		}
 		if hash == "" {
-			return Manifest{}, errors.New("校验文件中缺少当前平台的更新包")
+			return Manifest{}, l10n.Error("校验文件中缺少当前平台的更新包")
 		}
 	}
 	return Manifest{Version: version, Platform: s.Platform, URL: archive.URL, Size: archive.Size, SHA256: strings.ToLower(hash)}, nil

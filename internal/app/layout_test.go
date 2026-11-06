@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Oranjekop/GistManager/internal/gist"
+	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/security"
 	"github.com/egoist/mygo/ui"
 )
@@ -232,7 +233,7 @@ func TestLongContentLayoutAndSnapshots(t *testing.T) {
 	}
 	a.showGist(a.gists[0], filename)
 	a.user.Login = strings.Repeat("layout", 12)
-	a.status = strings.Repeat("长状态消息与错误详情 ", 30)
+	a.status = l10n.Msg(strings.Repeat("长状态消息与错误详情 ", 30))
 	for _, size := range [][2]int{{1500, 940}, {1000, 680}} {
 		tt := ui.NewTester(a.View, size[0], size[1])
 		for _, label := range []string{"系统设置", "编辑", "复制 Raw", "自动换行"} {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/Oranjekop/GistManager/internal/app"
 	"github.com/Oranjekop/GistManager/internal/gist"
+	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/security"
 	"github.com/Oranjekop/GistManager/internal/update"
 	"github.com/egoist/mygo"
@@ -57,6 +58,7 @@ func main() {
 	}
 	mygo.App.SetName(config.Name)
 	mygo.App.SetVersion(config.Version)
+	mygo.App.SetLanguages("en", "zh", "zh-Hant")
 	if os.Getenv("MYGO_GENERATE") != "" {
 		if err := mygo.App.Run(); err != nil {
 			log.Fatal(err)
@@ -120,8 +122,13 @@ func main() {
 	}
 	mygo.App.WhenReady(func() {
 		a.Window = mygo.NewWindow(mygo.WindowOptions{
-			Title: config.Name, Width: 1500, Height: 940, MinWidth: 1000, MinHeight: 680,
+			Title: l10n.Text("Gist管理器"), Width: 1500, Height: 940, MinWidth: 1000, MinHeight: 680,
 			Content: ui.View(a.View),
+		})
+		mygo.App.OnLocaleChanged(func(string) {
+			if !a.Window.IsDestroyed() {
+				a.Window.SetTitle(l10n.Text("Gist管理器"))
+			}
 		})
 		// Older Windows update helpers pass SW_HIDE to the relaunched app.
 		// Show the workspace before startup authentication can open its prompt.

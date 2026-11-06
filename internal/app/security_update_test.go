@@ -141,7 +141,7 @@ func TestForgottenPasswordRecoveryFromLockedScreen(t *testing.T) {
 	assertCenteredDialog(t, tt, "密码恢复对话框", 1000, 680)
 	snapshot(t, tt, "password-recovery-light.png")
 	click(t, tt, "验证并清除密码")
-	if !a.recoveryOpen || a.recoveryIssue == "" || !a.Security.State().Locked || !a.Security.State().HasPassword {
+	if !a.recoveryOpen || a.recoveryIssue == nil || !a.Security.State().Locked || !a.Security.State().HasPassword {
 		t.Fatal("cancelled recovery changed the password")
 	}
 	biometric.verified = true
@@ -156,11 +156,11 @@ func TestForgottenPasswordRecoveryFromLockedScreen(t *testing.T) {
 	if biometric.attempts != 2 {
 		t.Fatal("recovery reused a previous OS verification")
 	}
-	if a.securityNotice == "" || !tt.HasText("程序密码已清除") {
+	if a.securityNotice == nil || !tt.HasText("程序密码已清除") {
 		t.Fatal("workspace loading hid the recovery result")
 	}
 	click(t, tt, "知道了")
-	if a.securityNotice != "" {
+	if a.securityNotice != nil {
 		t.Fatal("could not dismiss the recovery result")
 	}
 }
@@ -181,12 +181,12 @@ func TestClearPasswordSettingsFlow(t *testing.T) {
 	assertCenteredDialog(t, tt, "密码恢复对话框", 1000, 680)
 	snapshot(t, tt, "clear-password-settings-light.png")
 	click(t, tt, "验证并清除密码")
-	if !a.recoveryOpen || a.recoveryIssue == "" || !a.Security.State().HasPassword {
+	if !a.recoveryOpen || a.recoveryIssue == nil || !a.Security.State().HasPassword {
 		t.Fatal("cleared password without authentication")
 	}
 	fill(t, tt, "当前程序密码", "wrong-password")
 	click(t, tt, "验证并清除密码")
-	if !a.recoveryOpen || a.recoveryIssue == "" || !a.Security.State().HasPassword || a.recoveryPassword != "" {
+	if !a.recoveryOpen || a.recoveryIssue == nil || !a.Security.State().HasPassword || a.recoveryPassword != "" {
 		t.Fatal("wrong password cleared security or retained the credential")
 	}
 	fill(t, tt, "当前程序密码", "fixture-password")

@@ -6,8 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/storage"
 )
 
@@ -36,7 +35,7 @@ func (s *Service) StartInstaller() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.busy || s.state.Status != "downloaded" || s.archive == "" {
-		return errors.New("更新尚未下载完成")
+		return l10n.Error("更新尚未下载完成")
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -48,7 +47,7 @@ func (s *Service) StartInstaller() error {
 	}
 	probe, err := os.CreateTemp(filepath.Dir(target), ".gist-update-check-*")
 	if err != nil {
-		return fmt.Errorf("应用目录不可写，请使用安装包手动更新: %w", err)
+		return l10n.Errorf("应用目录不可写，请使用安装包手动更新: %w", err)
 	}
 	_ = probe.Close()
 	_ = os.Remove(probe.Name())
@@ -77,7 +76,8 @@ func (s *Service) StartInstaller() error {
 	}
 	_ = cmd.Process.Release()
 	started = true
-	s.state.Status, s.state.Message = "installing", "正在退出并安装更新"
+	s.state.Status = "installing"
+	s.state.SetMessage(l10n.Msg("正在退出并安装更新"))
 	return nil
 }
 
@@ -89,7 +89,7 @@ func InstallTarget(executable string) (string, error) {
 	if runtime.GOOS == "darwin" {
 		bundle := filepath.Dir(filepath.Dir(filepath.Dir(executable)))
 		if !strings.HasSuffix(bundle, ".app") {
-			return "", errors.New("请在安装后的 .app 中更新")
+			return "", l10n.Error("请在安装后的 .app 中更新")
 		}
 		return bundle, nil
 	}
@@ -106,17 +106,17 @@ func verifyPlan(ctx context.Context, plan Plan, key string, client *http.Client)
 		return Verify(plan.Envelope, key, platform)
 	}
 	if plan.Tag != "v"+plan.Manifest.Version || !versionPattern.MatchString(plan.Manifest.Version) {
-		return Manifest{}, errors.New("更新计划包含无效的版本")
+		return Manifest{}, l10n.Error("更新计划包含无效的版本")
 	}
 	// The API origin is fixed here: a local plan cannot supply its own authority.
 	s := &Service{HTTP: client, Platform: platform}
 	r, err := s.release(ctx, githubAPI+"/releases/tags/"+url.PathEscape(plan.Tag))
 	if err != nil {
-		return Manifest{}, fmt.Errorf("安装前无法确认 GitHub 发布信息，请重新检查更新: %w", err)
+		return Manifest{}, l10n.Errorf("安装前无法确认 GitHub 发布信息，请重新检查更新: %w", err)
 	}
 	version, err := r.version()
 	if err != nil || r.TagName != plan.Tag || version != plan.Manifest.Version {
-		return Manifest{}, errors.New("发布版本已变化，请重新检查更新")
+		return Manifest{}, l10n.Error("发布版本已变化，请重新检查更新")
 	}
 	manifest, err := s.releaseManifest(ctx, r, version)
 	if err != nil {
@@ -124,7 +124,7 @@ func verifyPlan(ctx context.Context, plan Plan, key string, client *http.Client)
 	}
 	expected := plan.Manifest
 	if manifest.Platform != expected.Platform || manifest.URL != expected.URL || manifest.Size != expected.Size || manifest.SHA256 != expected.SHA256 {
-		return Manifest{}, errors.New("更新包与 GitHub 发布信息不一致，请重新下载")
+		return Manifest{}, l10n.Error("更新包与 GitHub 发布信息不一致，请重新下载")
 	}
 	return manifest, nil
 }
@@ -148,7 +148,7 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 		return err
 	}
 	if !filepath.IsAbs(plan.Target) || !filepath.IsAbs(plan.Archive) {
-		return errors.New("更新路径必须是绝对路径")
+		return l10n.Error("更新路径必须是绝对路径")
 	}
 	f, err := os.Open(plan.Archive)
 	if err != nil {
@@ -161,7 +161,7 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 		return err
 	}
 	if n != manifest.Size || hex.EncodeToString(hash.Sum(nil)) != manifest.SHA256 {
-		return errors.New("更新包在安装前被修改")
+		return l10n.Error("更新包在安装前被修改")
 	}
 	work, err := os.MkdirTemp(filepath.Dir(plan.Target), ".gist-update-*")
 	if err != nil {
@@ -189,10 +189,10 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 	}
 	info, err := os.Stat(entry)
 	if err != nil {
-		return fmt.Errorf("更新包缺少应用文件: %w", err)
+		return l10n.Errorf("更新包缺少应用文件: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Size() == 0 {
-		return errors.New("更新包中的应用文件无效")
+		return l10n.Error("更新包中的应用文件无效")
 	}
 	backup := filepath.Join(work, "previous")
 	deadline := time.Now().Add(60 * time.Second)
@@ -202,7 +202,7 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 			break
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("无法替换应用: %w", err)
+			return l10n.Errorf("无法替换应用: %w", err)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -210,7 +210,7 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 		if rollback := os.Rename(backup, plan.Target); rollback != nil {
 			// Keep the backup available if both the swap and rollback fail.
 			keepBackup = true
-			return fmt.Errorf("更新和恢复失败，备份位于 %s: %w", backup, rollback)
+			return l10n.Errorf("更新和恢复失败，备份位于 %s: %w", backup, rollback)
 		}
 		return err
 	}
@@ -222,13 +222,13 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 		if err = cmd.Start(); err != nil {
 			if moveErr := os.Rename(plan.Target, newTarget); moveErr != nil {
 				keepBackup = true
-				return fmt.Errorf("新版本无法启动，原版本备份位于 %s: %w", backup, err)
+				return l10n.Errorf("新版本无法启动，原版本备份位于 %s: %w", backup, err)
 			}
 			if rollback := os.Rename(backup, plan.Target); rollback != nil {
 				keepBackup = true
-				return fmt.Errorf("新版本无法启动且恢复失败，备份位于 %s: %w", backup, rollback)
+				return l10n.Errorf("新版本无法启动且恢复失败，备份位于 %s: %w", backup, rollback)
 			}
-			return fmt.Errorf("新版本无法启动，已恢复原版本: %w", err)
+			return l10n.Errorf("新版本无法启动，已恢复原版本: %w", err)
 		}
 		_ = cmd.Process.Release()
 	}
@@ -246,11 +246,11 @@ func Extract(archive, target string) error {
 	for _, file := range r.File {
 		name := filepath.FromSlash(file.Name)
 		if !filepath.IsLocal(name) || strings.Contains(file.Name, "\\") || file.Mode()&os.ModeSymlink != 0 {
-			return errors.New("更新包包含不安全的路径")
+			return l10n.Error("更新包包含不安全的路径")
 		}
 		total += file.UncompressedSize64
 		if total > 512<<20 || len(r.File) > 20000 {
-			return errors.New("更新包解压大小超过限制")
+			return l10n.Error("更新包解压大小超过限制")
 		}
 		path := filepath.Join(target, name)
 		if file.FileInfo().IsDir() {

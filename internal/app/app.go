@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Oranjekop/GistManager/internal/gist"
+	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/security"
 	"github.com/Oranjekop/GistManager/internal/storage"
 	"github.com/Oranjekop/GistManager/internal/update"
@@ -33,74 +33,81 @@ type API interface {
 }
 
 type App struct {
-	Icon                                        *ui.Bitmap
-	Window                                      *mygo.Window
-	API                                         API
-	Security                                    *security.Service
-	Updates                                     *update.Service
-	Version                                     string
-	DataDir                                     string
-	Demo                                        bool
-	post                                        func(func())
-	async                                       func(func())
-	openURL                                     func(string) error
-	copyText                                    func(string)
-	quit                                        func()
-	user                                        *gist.User
-	gists                                       []gist.Gist
-	current                                     *gist.Gist
-	selected                                    string
-	description                                 string
-	code                                        *editor.State
-	search                                      string
-	editing                                     bool
-	mode                                        string
-	filename                                    string
-	public                                      bool
-	busy                                        bool
-	status                                      string
-	issue                                       string
-	busyText                                    string
-	cancel                                      context.CancelFunc
-	generation                                  uint64
-	sidebarWidth, filesWidth                    float32
-	wrap                                        bool
-	tokenDraft, unlockPassword                  string
-	connecting                                  bool
-	unlocking                                   bool
-	started                                     bool
-	biometricChecked                            bool
-	biometricAttempted                          bool
-	biometricAvailable                          bool
-	biometricLabel                              string
-	settingsOpen                                bool
-	settingsForm                                security.Options
-	settingsIssue, settingsNotice               string
-	settingsBusy                                bool
-	passwordOpen                                bool
-	passwordForm                                security.Options
-	passwordConfirm, passwordIssue              string
-	recoveryOpen, recoveryBusy                  bool
-	recoveryIssue, recoveryPassword             string
-	recoveryMethod                              int
-	securityNotice                              string
-	tokenOpen                                   bool
-	renameOpen                                  bool
-	renameDraft                                 string
-	updateOpen                                  bool
-	updateState                                 update.State
-	updateBusy                                  bool
-	confirmOpen                                 bool
-	confirmTitle, confirmMessage, confirmAction string
-	confirmed                                   func()
-	allowClose                                  bool
-	gistList                                    ui.ListState
-	gistIndex                                   int
+	Icon                       *ui.Bitmap
+	Window                     *mygo.Window
+	API                        API
+	Security                   *security.Service
+	Updates                    *update.Service
+	Version                    string
+	DataDir                    string
+	Demo                       bool
+	post                       func(func())
+	async                      func(func())
+	openURL                    func(string) error
+	copyText                   func(string)
+	quit                       func()
+	user                       *gist.User
+	gists                      []gist.Gist
+	current                    *gist.Gist
+	selected                   string
+	description                string
+	code                       *editor.State
+	search                     string
+	editing                    bool
+	mode                       string
+	filename                   string
+	public                     bool
+	busy                       bool
+	status                     l10n.Message
+	issue                      l10n.Message
+	busyText                   l10n.Message
+	cancel                     context.CancelFunc
+	generation                 uint64
+	sidebarWidth, filesWidth   float32
+	wrap                       bool
+	language                   string
+	applyLocale                func(string)
+	tokenDraft, unlockPassword string
+	connecting                 bool
+	unlocking                  bool
+	started                    bool
+	biometricChecked           bool
+	biometricAttempted         bool
+	biometricAvailable         bool
+	biometricLabel             string
+	settingsOpen               bool
+	settingsForm               security.Options
+	settingsIssue              l10n.Message
+	settingsNotice             l10n.Message
+	settingsBusy               bool
+	passwordOpen               bool
+	passwordForm               security.Options
+	passwordConfirm            string
+	passwordIssue              l10n.Message
+	recoveryOpen, recoveryBusy bool
+	recoveryIssue              l10n.Message
+	recoveryPassword           string
+	recoveryMethod             int
+	securityNotice             l10n.Message
+	tokenOpen                  bool
+	renameOpen                 bool
+	renameDraft                string
+	updateOpen                 bool
+	updateState                update.State
+	updateBusy                 bool
+	confirmOpen                bool
+	confirmTitle               l10n.Message
+	confirmMessage             l10n.Message
+	confirmAction              l10n.Message
+	confirmed                  func()
+	allowClose                 bool
+	gistList                   ui.ListState
+	gistIndex                  int
 }
 
 func New(api API, secure *security.Service, updater *update.Service, version, dir string) *App {
 	a := &App{API: api, Security: secure, Updates: updater, Version: version, DataDir: dir,
-		sidebarWidth: 300, filesWidth: 212, wrap: true, mode: "browse", status: "准备就绪"}
+		sidebarWidth: 300, filesWidth: 212, wrap: true, mode: "browse", status: l10n.Msg("准备就绪")}
 	a.async = func(fn func()) { go fn() }
 	a.post = func(fn func()) {
 		if a.Window != nil && !a.Window.IsDestroyed() {
@@ -110,12 +117,13 @@ func New(api API, secure *security.Service, updater *update.Service, version, di
 	a.openURL = func(location string) error {
 		u, err := url.Parse(location)
 		if err != nil || u.Scheme != "https" || u.Host == "" {
-			return errors.New("只能打开有效的 HTTPS 链接")
+			return l10n.Error("只能打开有效的 HTTPS 链接")
 		}
 		return mygo.Shell.OpenExternal(location)
 	}
 	a.copyText = func(text string) { mygo.Clipboard.WriteText(text) }
 	a.quit = func() { mygo.App.Quit() }
+	a.applyLocale = mygo.App.SetLocale
 	a.resetEditor("")
 	if updater != nil {
 		a.updateState = updater.State()
@@ -182,14 +190,14 @@ func (a *App) dirty() bool {
 	return a.current != nil && (a.code.Buffer.Modified() || a.description != a.current.Description)
 }
 
-func (a *App) ask(title, message, action string, fn func()) {
+func (a *App) ask(title, message, action l10n.Message, fn func()) {
 	a.confirmTitle, a.confirmMessage, a.confirmAction = title, message, action
 	a.confirmed, a.confirmOpen = fn, true
 }
 
 func (a *App) whenClean(fn func()) {
 	if a.dirty() {
-		a.ask("有未保存的改动", "继续操作会放弃当前编辑内容。", "放弃并继续", func() {
+		a.ask(l10n.Msg("有未保存的改动"), l10n.Msg("继续操作会放弃当前编辑内容。"), l10n.Msg("放弃并继续"), func() {
 			a.mode, a.editing, a.public = "browse", false, false
 			if a.current != nil {
 				a.description = a.current.Description
@@ -205,11 +213,11 @@ func (a *App) whenClean(fn func()) {
 	fn()
 }
 
-func (a *App) perform(message string, work func(context.Context) (func(), error)) {
+func (a *App) perform(message l10n.Message, work func(context.Context) (func(), error)) {
 	if a.busy {
 		return
 	}
-	a.busy, a.busyText, a.issue = true, message, ""
+	a.busy, a.busyText, a.issue = true, message, nil
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 	generation := a.generation
@@ -223,7 +231,7 @@ func (a *App) perform(message string, work func(context.Context) (func(), error)
 			a.busy, a.cancel = false, nil
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
-					a.issue = err.Error()
+					a.issue = l10n.FromError(err)
 				}
 				return
 			}
@@ -235,7 +243,7 @@ func (a *App) perform(message string, work func(context.Context) (func(), error)
 }
 
 func (a *App) resume() {
-	a.perform("正在读取账号…", func(ctx context.Context) (func(), error) {
+	a.perform(l10n.Msg("正在读取账号…"), func(ctx context.Context) (func(), error) {
 		token, err := a.Security.Token()
 		if err != nil {
 			return nil, err
@@ -268,7 +276,7 @@ func (a *App) connect(ctx context.Context, token string, save bool) (func(), err
 		a.clearWorkspace()
 		a.user, a.gists = &user, items
 		a.tokenDraft, a.tokenOpen = "", false
-		a.status = fmt.Sprintf("已连接 @%s · %d 个 Gist", user.Login, len(items))
+		a.status = l10n.Msgf("已连接 @%s · %d 个 Gist", user.Login, len(items))
 		if len(items) > 0 {
 			a.selectGist(items[0].ID)
 		}
@@ -278,10 +286,10 @@ func (a *App) connect(ctx context.Context, token string, save bool) (func(), err
 func (a *App) connectDraft() {
 	token := strings.TrimSpace(a.tokenDraft)
 	if token == "" {
-		a.issue = "请输入 GitHub Token"
+		a.issue = l10n.Msg("请输入 GitHub Token")
 		return
 	}
-	a.perform("正在连接 GitHub…", func(ctx context.Context) (func(), error) { return a.connect(ctx, token, true) })
+	a.perform(l10n.Msg("正在连接 GitHub…"), func(ctx context.Context) (func(), error) { return a.connect(ctx, token, true) })
 }
 
 func (a *App) refresh() {
@@ -289,7 +297,7 @@ func (a *App) refresh() {
 		return
 	}
 	a.whenClean(func() {
-		a.perform("正在刷新 Gist…", func(ctx context.Context) (func(), error) {
+		a.perform(l10n.Msg("正在刷新 Gist…"), func(ctx context.Context) (func(), error) {
 			token, err := a.Security.Token()
 			if err != nil {
 				return nil, err
@@ -299,7 +307,7 @@ func (a *App) refresh() {
 				return nil, err
 			}
 			return func() {
-				a.gists, a.status = items, fmt.Sprintf("已加载 %d 个 Gist", len(items))
+				a.gists, a.status = items, l10n.Msgf("已加载 %d 个 Gist", len(items))
 				if a.current != nil {
 					for _, g := range items {
 						if g.ID == a.current.ID {
@@ -323,7 +331,7 @@ func (a *App) selectGist(id string) {
 		return
 	}
 	a.whenClean(func() {
-		a.perform("正在加载文件…", func(ctx context.Context) (func(), error) {
+		a.perform(l10n.Msg("正在加载文件…"), func(ctx context.Context) (func(), error) {
 			token, err := a.Security.Token()
 			if err != nil {
 				return nil, err
@@ -332,7 +340,7 @@ func (a *App) selectGist(id string) {
 			if err != nil {
 				return nil, err
 			}
-			return func() { a.showGist(g, ""); a.status = "已打开 " + g.Title() }, nil
+			return func() { a.showGist(g, ""); a.status = l10n.Msgf("已打开 %s", g.Title()) }, nil
 		})
 	})
 }
@@ -398,17 +406,17 @@ func (a *App) save() {
 		filename = strings.TrimSpace(a.filename)
 	}
 	if !validFilename(filename) {
-		a.issue = "文件名不能为空，也不能包含路径分隔符"
+		a.issue = l10n.Msg("文件名不能为空，也不能包含路径分隔符")
 		return
 	}
 	if mode == "add" {
 		if _, exists := a.current.Files[filename]; exists {
-			a.issue = "该文件名已存在"
+			a.issue = l10n.Msg("该文件名已存在")
 			return
 		}
 	}
 	if mode != "browse" && text == "" {
-		a.issue = "GitHub Gist 的新文件内容不能为空"
+		a.issue = l10n.Msg("GitHub Gist 的新文件内容不能为空")
 		return
 	}
 	patch := gist.Patch{Files: map[string]*gist.FileChange{filename: {Content: &text}}}
@@ -420,7 +428,7 @@ func (a *App) save() {
 	if a.current != nil {
 		id = a.current.ID
 	}
-	a.perform("正在保存到 GitHub…", func(ctx context.Context) (func(), error) {
+	a.perform(l10n.Msg("正在保存到 GitHub…"), func(ctx context.Context) (func(), error) {
 		token, err := a.Security.Token()
 		if err != nil {
 			return nil, err
@@ -434,7 +442,7 @@ func (a *App) save() {
 		if err != nil {
 			return nil, err
 		}
-		return func() { a.showGist(g, filename); a.status = "已保存到 GitHub" }, nil
+		return func() { a.showGist(g, filename); a.status = l10n.Msg("已保存到 GitHub") }, nil
 	})
 }
 
@@ -456,7 +464,7 @@ func (a *App) rename() {
 	}
 	name := strings.TrimSpace(a.renameDraft)
 	if !validFilename(name) {
-		a.issue = "请输入有效的文件名"
+		a.issue = l10n.Msg("请输入有效的文件名")
 		return
 	}
 	if name == a.selected {
@@ -464,12 +472,12 @@ func (a *App) rename() {
 		return
 	}
 	if _, exists := a.current.Files[name]; exists {
-		a.issue = "该文件名已存在"
+		a.issue = l10n.Msg("该文件名已存在")
 		return
 	}
 	id, old := a.current.ID, a.selected
 	patch := gist.Patch{Files: map[string]*gist.FileChange{old: {Filename: name}}}
-	a.perform("正在重命名…", func(ctx context.Context) (func(), error) {
+	a.perform(l10n.Msg("正在重命名…"), func(ctx context.Context) (func(), error) {
 		token, err := a.Security.Token()
 		if err != nil {
 			return nil, err
@@ -478,7 +486,7 @@ func (a *App) rename() {
 		if err != nil {
 			return nil, err
 		}
-		return func() { a.renameOpen = false; a.showGist(g, name); a.status = "文件已重命名" }, nil
+		return func() { a.renameOpen = false; a.showGist(g, name); a.status = l10n.Msg("文件已重命名") }, nil
 	})
 }
 
@@ -487,12 +495,12 @@ func (a *App) deleteFile() {
 		return
 	}
 	if len(a.current.Files) < 2 {
-		a.issue = "最后一个文件不能单独删除，请使用删除 Gist"
+		a.issue = l10n.Msg("最后一个文件不能单独删除，请使用删除 Gist")
 		return
 	}
 	id, name := a.current.ID, a.selected
-	a.ask("删除文件", "确认从 GitHub 永久删除 "+name+"？", "永久删除", func() {
-		a.perform("正在删除文件…", func(ctx context.Context) (func(), error) {
+	a.ask(l10n.Msg("删除文件"), l10n.Msgf("确认从 GitHub 永久删除 %s？", name), l10n.Msg("永久删除"), func() {
+		a.perform(l10n.Msg("正在删除文件…"), func(ctx context.Context) (func(), error) {
 			token, err := a.Security.Token()
 			if err != nil {
 				return nil, err
@@ -501,7 +509,7 @@ func (a *App) deleteFile() {
 			if err != nil {
 				return nil, err
 			}
-			return func() { a.showGist(g, ""); a.status = "文件已删除" }, nil
+			return func() { a.showGist(g, ""); a.status = l10n.Msg("文件已删除") }, nil
 		})
 	})
 }
@@ -511,8 +519,8 @@ func (a *App) deleteGist() {
 		return
 	}
 	id := a.current.ID
-	a.ask("删除 Gist", "确认永久删除这个 Gist 和它的全部文件？此操作无法撤销。", "永久删除", func() {
-		a.perform("正在删除 Gist…", func(ctx context.Context) (func(), error) {
+	a.ask(l10n.Msg("删除 Gist"), l10n.Msg("确认永久删除这个 Gist 和它的全部文件？此操作无法撤销。"), l10n.Msg("永久删除"), func() {
+		a.perform(l10n.Msg("正在删除 Gist…"), func(ctx context.Context) (func(), error) {
 			token, err := a.Security.Token()
 			if err != nil {
 				return nil, err
@@ -530,7 +538,7 @@ func (a *App) deleteGist() {
 				a.gists, a.current, a.selected, a.description = items, nil, "", ""
 				a.editing, a.mode = false, "browse"
 				a.resetEditor("")
-				a.status = "Gist 已删除"
+				a.status = l10n.Msg("Gist 已删除")
 				if len(items) > 0 {
 					a.selectGist(items[0].ID)
 				}
@@ -544,7 +552,7 @@ func (a *App) clearWorkspace() {
 	a.description, a.selected, a.mode, a.editing, a.public = "", "", "browse", false, false
 	a.tokenDraft, a.unlockPassword, a.search, a.renameDraft = "", "", "", ""
 	a.settingsForm, a.passwordForm = security.Options{}, security.Options{}
-	a.passwordConfirm, a.passwordIssue, a.recoveryPassword, a.recoveryIssue = "", "", "", ""
+	a.passwordConfirm, a.passwordIssue, a.recoveryPassword, a.recoveryIssue = "", nil, "", nil
 	a.passwordOpen, a.recoveryOpen = false, false
 	a.settingsOpen, a.tokenOpen, a.renameOpen, a.confirmOpen = false, false, false, false
 	a.confirmed = nil
@@ -553,7 +561,7 @@ func (a *App) clearWorkspace() {
 
 func (a *App) lock() {
 	if a.settingsBusy || a.recoveryBusy {
-		a.issue = "请等待安全设置保存完成"
+		a.issue = l10n.Msg("请等待安全设置保存完成")
 		return
 	}
 	if !a.Security.State().LockEnabled {
@@ -569,8 +577,8 @@ func (a *App) lock() {
 		a.busy = false
 		a.Security.Lock()
 		a.clearWorkspace()
-		a.securityNotice = ""
-		a.issue, a.status = "", "应用已锁定"
+		a.securityNotice = nil
+		a.issue, a.status = nil, l10n.Msg("应用已锁定")
 		a.biometricAttempted = false
 		a.post(a.maybeAutoUnlock)
 	})
@@ -603,7 +611,7 @@ func (a *App) unlock(biometric bool) {
 		owner = a.authenticationOwner()
 	}
 	password := a.unlockPassword
-	a.unlockPassword, a.unlocking, a.issue = "", true, ""
+	a.unlockPassword, a.unlocking, a.issue = "", true, nil
 	a.async(func() {
 		var err error
 		if biometric {
@@ -616,7 +624,7 @@ func (a *App) unlock(biometric bool) {
 		a.post(func() {
 			a.unlocking = false
 			if err != nil {
-				a.issue = err.Error()
+				a.issue = l10n.FromError(err)
 				return
 			}
 			a.resume()
@@ -630,7 +638,7 @@ func (a *App) openSettings() {
 	}
 	state := a.Security.State()
 	a.settingsForm = security.Options{LockEnabled: state.LockEnabled, BiometricEnabled: state.BiometricEnabled}
-	a.settingsIssue, a.settingsNotice, a.settingsOpen = "", "", true
+	a.settingsIssue, a.settingsNotice, a.settingsOpen = nil, nil, true
 }
 
 func (a *App) settingsChanged() bool {
@@ -644,13 +652,13 @@ func (a *App) saveSettings() {
 		return
 	}
 	if a.Security.State().HasPassword && a.settingsForm.CurrentPassword == "" {
-		a.settingsIssue = "请输入当前程序密码以保存解锁设置"
+		a.settingsIssue = l10n.Msg("请输入当前程序密码以保存解锁设置")
 		return
 	}
 	options := a.settingsForm
 	options.NewPassword = ""
 	a.settingsForm.CurrentPassword = ""
-	a.settingsBusy, a.settingsIssue = true, ""
+	a.settingsBusy, a.settingsIssue = true, nil
 	a.async(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -658,11 +666,11 @@ func (a *App) saveSettings() {
 		a.post(func() {
 			a.settingsBusy = false
 			if err != nil {
-				a.settingsIssue = err.Error()
+				a.settingsIssue = l10n.FromError(err)
 				return
 			}
 			a.settingsOpen, a.settingsForm = false, security.Options{}
-			a.status = "安全设置已保存"
+			a.status = l10n.Msg("安全设置已保存")
 		})
 	})
 }
@@ -671,7 +679,7 @@ func (a *App) openPasswordSettings() {
 	if a.settingsBusy || a.recoveryBusy || a.Security.State().Locked {
 		return
 	}
-	a.passwordForm, a.passwordConfirm, a.passwordIssue = security.Options{}, "", ""
+	a.passwordForm, a.passwordConfirm, a.passwordIssue = security.Options{}, "", nil
 	a.passwordOpen = true
 }
 
@@ -680,16 +688,16 @@ func (a *App) savePassword() {
 		return
 	}
 	if utf8.RuneCountInString(a.passwordForm.NewPassword) < 6 {
-		a.passwordIssue = "程序密码至少需要 6 位"
+		a.passwordIssue = l10n.Msg("程序密码至少需要 6 位")
 		return
 	}
 	if a.passwordForm.NewPassword != a.passwordConfirm {
-		a.passwordIssue = "两次输入的新密码不一致"
+		a.passwordIssue = l10n.Msg("两次输入的新密码不一致")
 		return
 	}
 	state := a.Security.State()
 	if state.HasPassword && a.passwordForm.CurrentPassword == "" {
-		a.passwordIssue = "请输入当前程序密码"
+		a.passwordIssue = l10n.Msg("请输入当前程序密码")
 		return
 	}
 	// Password changes preserve saved lock preferences; drafts in the settings
@@ -697,7 +705,7 @@ func (a *App) savePassword() {
 	options := security.Options{CurrentPassword: a.passwordForm.CurrentPassword, NewPassword: a.passwordForm.NewPassword,
 		LockEnabled: state.LockEnabled || !state.HasPassword, BiometricEnabled: state.BiometricEnabled}
 	a.passwordForm.CurrentPassword = ""
-	a.settingsBusy, a.passwordIssue = true, ""
+	a.settingsBusy, a.passwordIssue = true, nil
 	a.async(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -705,16 +713,16 @@ func (a *App) savePassword() {
 		a.post(func() {
 			a.settingsBusy = false
 			if err != nil {
-				a.passwordIssue = err.Error()
+				a.passwordIssue = l10n.FromError(err)
 				return
 			}
 			a.passwordOpen, a.passwordForm, a.passwordConfirm = false, security.Options{}, ""
-			a.settingsForm.CurrentPassword, a.settingsIssue = "", ""
-			a.settingsNotice = "程序密码已更新"
+			a.settingsForm.CurrentPassword, a.settingsIssue = "", nil
+			a.settingsNotice = l10n.Msg("程序密码已更新")
 			if !state.HasPassword {
 				state := a.Security.State()
 				a.settingsForm = security.Options{LockEnabled: state.LockEnabled, BiometricEnabled: state.BiometricEnabled}
-				a.settingsNotice = "程序密码已设置，启动锁定已开启"
+				a.settingsNotice = l10n.Msg("程序密码已设置，启动锁定已开启")
 			}
 			a.status = a.settingsNotice
 		})
@@ -725,7 +733,7 @@ func (a *App) openPasswordRecovery() {
 	if a.unlocking || a.settingsBusy || a.recoveryBusy || !a.Security.State().HasPassword {
 		return
 	}
-	a.unlockPassword, a.recoveryPassword, a.recoveryIssue, a.recoveryOpen = "", "", "", true
+	a.unlockPassword, a.recoveryPassword, a.recoveryIssue, a.recoveryOpen = "", "", nil, true
 	a.recoveryMethod = 0
 	if a.Security.State().Locked {
 		a.recoveryMethod = 1
@@ -738,7 +746,7 @@ func (a *App) recoverPassword() {
 	}
 	biometric, wasLocked := a.recoveryMethod == 1, a.Security.State().Locked
 	if !biometric && a.recoveryPassword == "" {
-		a.recoveryIssue = "请输入当前程序密码"
+		a.recoveryIssue = l10n.Msg("请输入当前程序密码")
 		return
 	}
 	var owner uintptr
@@ -747,7 +755,7 @@ func (a *App) recoverPassword() {
 	}
 	password := a.recoveryPassword
 	a.recoveryPassword = ""
-	a.recoveryBusy, a.recoveryIssue = true, ""
+	a.recoveryBusy, a.recoveryIssue = true, nil
 	a.async(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
@@ -760,16 +768,16 @@ func (a *App) recoverPassword() {
 		a.post(func() {
 			a.recoveryBusy = false
 			if err != nil {
-				a.recoveryIssue = err.Error()
+				a.recoveryIssue = l10n.FromError(err)
 				return
 			}
 			a.recoveryOpen, a.passwordOpen = false, false
 			a.settingsForm, a.passwordForm, a.passwordConfirm, a.unlockPassword = security.Options{}, security.Options{}, "", ""
-			a.settingsIssue, a.settingsNotice = "", "程序密码已清除，启动锁定已关闭"
-			a.issue, a.status = "", "程序密码已清除，启动锁定已关闭"
+			a.settingsIssue, a.settingsNotice = nil, l10n.Msg("程序密码已清除，启动锁定已关闭")
+			a.issue, a.status = nil, l10n.Msg("程序密码已清除，启动锁定已关闭")
 			if wasLocked {
 				a.resume()
-				a.securityNotice = "程序密码已清除，启动锁定已关闭。你可以在系统设置中重新设置密码。"
+				a.securityNotice = l10n.Msg("程序密码已清除，启动锁定已关闭。你可以在系统设置中重新设置密码。")
 			}
 		})
 	})
@@ -815,11 +823,12 @@ func (a *App) downloadUpdate() {
 func (a *App) installUpdate() {
 	a.whenClean(func() {
 		if a.busy || a.settingsBusy || a.recoveryBusy || a.unlocking {
-			a.issue = "请等待当前操作完成"
+			a.issue = l10n.Msg("请等待当前操作完成")
 			return
 		}
 		if err := a.Updates.StartInstaller(); err != nil {
-			a.updateState.Status, a.updateState.Message = "error", err.Error()
+			a.updateState.Status = "error"
+			a.updateState.SetMessage(l10n.FromError(err))
 			return
 		}
 		a.allowClose = true
@@ -829,7 +838,7 @@ func (a *App) installUpdate() {
 
 func (a *App) open(location string) {
 	if err := a.openURL(location); err != nil {
-		a.issue = err.Error()
+		a.issue = l10n.FromError(err)
 	}
 }
 
@@ -839,12 +848,12 @@ func (a *App) raw(copy bool) {
 	}
 	link := a.current.Files[a.selected].RawURL
 	if link == "" {
-		a.issue = "此文件暂无 Raw 链接"
+		a.issue = l10n.Msg("此文件暂无 Raw 链接")
 		return
 	}
 	if copy {
 		a.copyText(link)
-		a.status = "Raw 链接已复制"
+		a.status = l10n.Msg("Raw 链接已复制")
 	} else {
 		a.open(link)
 	}
@@ -855,26 +864,27 @@ func (a *App) RequestClose() bool {
 		return true
 	}
 	if a.busy || a.settingsBusy || a.recoveryBusy {
-		a.issue = "请等待当前操作完成后退出"
+		a.issue = l10n.Msg("请等待当前操作完成后退出")
 		return false
 	}
 	if !a.dirty() {
 		a.saveLayout()
 		return true
 	}
-	a.ask("退出前放弃改动？", "当前编辑内容尚未保存到 GitHub。", "放弃并退出", func() { a.allowClose = true; a.saveLayout(); a.quit() })
+	a.ask(l10n.Msg("退出前放弃改动？"), l10n.Msg("当前编辑内容尚未保存到 GitHub。"), l10n.Msg("放弃并退出"), func() { a.allowClose = true; a.saveLayout(); a.quit() })
 	return false
 }
 
 func (a *App) saveLayout() {
-	_ = storage.WriteJSON(filepath.Join(a.DataDir, "layout.json"), map[string]any{"sidebar": a.sidebarWidth, "files": a.filesWidth, "wrap": a.wrap})
+	_ = storage.WriteJSON(filepath.Join(a.DataDir, "layout.json"), map[string]any{"sidebar": a.sidebarWidth, "files": a.filesWidth, "wrap": a.wrap, "language": a.language})
 }
 
 func (a *App) LoadLayout() {
 	var layout struct {
-		Sidebar float32 `json:"sidebar"`
-		Files   float32 `json:"files"`
-		Wrap    *bool   `json:"wrap"`
+		Sidebar  float32 `json:"sidebar"`
+		Files    float32 `json:"files"`
+		Wrap     *bool   `json:"wrap"`
+		Language *string `json:"language"`
 	}
 	data, err := os.ReadFile(filepath.Join(a.DataDir, "layout.json"))
 	if err != nil || json.Unmarshal(data, &layout) != nil {
@@ -888,5 +898,9 @@ func (a *App) LoadLayout() {
 	}
 	if layout.Wrap != nil {
 		a.wrap = *layout.Wrap
+	}
+	if layout.Language != nil && validLanguage(*layout.Language) {
+		a.language = *layout.Language
+		a.applyLocale(a.language)
 	}
 }

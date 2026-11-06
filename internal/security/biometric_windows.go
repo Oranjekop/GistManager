@@ -6,11 +6,12 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
 	"unsafe"
+
+	"github.com/Oranjekop/GistManager/internal/l10n"
 )
 
 type SystemBiometric struct{}
@@ -18,7 +19,7 @@ type SystemBiometric struct{}
 func (SystemBiometric) Available(ctx context.Context) (bool, string) {
 	result, err := runHello(ctx, false, 0)
 	if result != 0 || err != nil {
-		return false, "此设备未配置 Windows Hello / PIN，请使用软件密码"
+		return false, l10n.Text("此设备未配置 Windows Hello / PIN，请使用软件密码")
 	}
 	return true, "Windows Hello / PIN"
 }
@@ -30,7 +31,7 @@ func (SystemBiometric) Verify(ctx context.Context) error {
 func (SystemBiometric) VerifyForWindow(ctx context.Context, owner uintptr) error {
 	result, err := runHello(ctx, true, owner)
 	if err == nil && result != 0 {
-		return errors.New("Windows Hello 已取消或验证失败")
+		return l10n.Error("Windows Hello 已取消或验证失败")
 	}
 	return err
 }
@@ -43,7 +44,7 @@ type dataBlob struct {
 func decryptLegacyToken(value, directory string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(value)
 	if err != nil || len(data) == 0 {
-		return "", errors.New("无效的旧版凭据")
+		return "", l10n.Error("无效的旧版凭据")
 	}
 	if len(data) > 3 && string(data[:3]) == "v10" {
 		stateData, readErr := os.ReadFile(filepath.Join(directory, "Local State"))
@@ -60,7 +61,7 @@ func decryptLegacyToken(value, directory string) (string, error) {
 		}
 		encryptedKey, err := base64.StdEncoding.DecodeString(state.Crypt.Key)
 		if err != nil || len(encryptedKey) < 6 || string(encryptedKey[:5]) != "DPAPI" {
-			return "", errors.New("旧版加密密钥格式不支持")
+			return "", l10n.Error("旧版加密密钥格式不支持")
 		}
 		key, err := unprotect(encryptedKey[5:])
 		if err != nil {
@@ -75,7 +76,7 @@ func decryptLegacyToken(value, directory string) (string, error) {
 			return "", err
 		}
 		if len(data) < 3+gcm.NonceSize()+gcm.Overhead() {
-			return "", errors.New("旧版凭据不完整")
+			return "", l10n.Error("旧版凭据不完整")
 		}
 		plain, err := gcm.Open(nil, data[3:3+gcm.NonceSize()], data[3+gcm.NonceSize():], nil)
 		return string(plain), err
@@ -86,7 +87,7 @@ func decryptLegacyToken(value, directory string) (string, error) {
 
 func unprotect(data []byte) ([]byte, error) {
 	if len(data) == 0 {
-		return nil, errors.New("凭据为空")
+		return nil, l10n.Error("凭据为空")
 	}
 	input := dataBlob{Size: uint32(len(data)), Data: &data[0]}
 	var output dataBlob

@@ -150,5 +150,5 @@ func (a *App) LoadDemo() {
 		}
 	}
 	_ = a.Security.SaveToken("demo-token")
-	a.status = "演示工作区 · 所有改动仅保存在内存中"
+	a.status = nil
 }

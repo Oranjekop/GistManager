@@ -7,18 +7,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
+	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/storage"
 	"golang.org/x/crypto/scrypt"
 )
 
-var ErrLocked = errors.New("应用尚未解锁")
+var ErrLocked = l10n.Error("应用尚未解锁")
 
 type Vault interface {
 	Load() (string, error)
@@ -73,10 +73,10 @@ func Open(dir string, vault Vault, biometric Biometric) (*Service, error) {
 	} else if err != nil {
 		return nil, err
 	} else if err = json.Unmarshal(data, &s.settings); err != nil {
-		return nil, fmt.Errorf("安全设置损坏，无法安全启动: %w", err)
+		return nil, l10n.Errorf("安全设置损坏，无法安全启动: %w", err)
 	}
 	if s.settings.LockEnabled && (s.settings.PasswordHash == "" || s.settings.PasswordSalt == "") {
-		return nil, errors.New("安全设置不完整，请恢复 security.json 备份")
+		return nil, l10n.Error("安全设置不完整，请恢复 security.json 备份")
 	}
 	s.unlocked = !s.settings.LockEnabled
 	return s, nil
@@ -104,7 +104,7 @@ func (s *Service) Unlock(password string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.settings.LockEnabled && !verify(password, s.settings) {
-		return errors.New("解锁密码不正确")
+		return l10n.Error("解锁密码不正确")
 	}
 	s.unlocked = true
 	s.authEpoch++
@@ -134,10 +134,10 @@ func (s *Service) UnlockBiometricForWindow(ctx context.Context, owner uintptr) e
 	epoch := s.authEpoch
 	s.mu.Unlock()
 	if !allowed {
-		return errors.New("系统身份验证未启用")
+		return l10n.Error("系统身份验证未启用")
 	}
 	if err := s.verifyBiometric(ctx, owner); err != nil {
-		return fmt.Errorf("系统身份验证未通过，请使用软件密码: %w", err)
+		return l10n.Errorf("系统身份验证未通过，请使用软件密码: %w", err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,7 +145,7 @@ func (s *Service) UnlockBiometricForWindow(ctx context.Context, owner uintptr) e
 		return err
 	}
 	if epoch != s.authEpoch {
-		return errors.New("锁定状态已变化，请重新验证")
+		return l10n.Error("锁定状态已变化，请重新验证")
 	}
 	s.unlocked = true
 	s.authEpoch++
@@ -159,13 +159,13 @@ func (s *Service) ClearPasswordWithBiometric(ctx context.Context, owner uintptr)
 	epoch, hasPassword := s.authEpoch, s.settings.PasswordHash != ""
 	s.mu.Unlock()
 	if !hasPassword {
-		return errors.New("尚未设置程序密码")
+		return l10n.Error("尚未设置程序密码")
 	}
 	if available, reason := s.biometric.Available(ctx); !available {
 		return errors.New(reason)
 	}
 	if err := s.verifyBiometric(ctx, owner); err != nil {
-		return fmt.Errorf("未清除密码，系统身份验证未通过: %w", err)
+		return l10n.Errorf("未清除密码，系统身份验证未通过: %w", err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -173,7 +173,7 @@ func (s *Service) ClearPasswordWithBiometric(ctx context.Context, owner uintptr)
 		return err
 	}
 	if epoch != s.authEpoch {
-		return errors.New("安全设置已变化，请重新验证")
+		return l10n.Error("安全设置已变化，请重新验证")
 	}
 	return s.clearPassword()
 }
@@ -188,10 +188,10 @@ func (s *Service) ClearPasswordWithPassword(ctx context.Context, password string
 		return err
 	}
 	if s.settings.PasswordHash == "" {
-		return errors.New("尚未设置程序密码")
+		return l10n.Error("尚未设置程序密码")
 	}
 	if !verify(password, s.settings) {
-		return errors.New("当前程序密码不正确")
+		return l10n.Error("当前程序密码不正确")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -227,13 +227,13 @@ func (s *Service) Configure(ctx context.Context, options Options) error {
 	}
 	settings := s.settings
 	if settings.PasswordHash != "" && !verify(options.CurrentPassword, settings) {
-		return errors.New("当前程序密码不正确")
+		return l10n.Error("当前程序密码不正确")
 	}
 	if options.NewPassword != "" && utf8.RuneCountInString(options.NewPassword) < 6 {
-		return errors.New("程序密码至少需要 6 位")
+		return l10n.Error("程序密码至少需要 6 位")
 	}
 	if options.LockEnabled && settings.PasswordHash == "" && options.NewPassword == "" {
-		return errors.New("请先设置至少 6 位的程序密码")
+		return l10n.Error("请先设置至少 6 位的程序密码")
 	}
 	if options.BiometricEnabled && !settings.BiometricEnabled {
 		available, reason := s.biometric.Available(ctx)
@@ -295,7 +295,7 @@ func (s *Service) Token() (string, error) {
 	}
 	token, err = decryptLegacyToken(s.settings.EncryptedToken, legacyDir)
 	if err != nil {
-		return "", errors.New("旧版 Token 无法迁移，请重新输入 GitHub Token；原安全设置仍保留")
+		return "", l10n.Error("旧版 Token 无法迁移，请重新输入 GitHub Token；原安全设置仍保留")
 	}
 	if err = s.vault.Save(token); err != nil {
 		return "", err
@@ -317,7 +317,7 @@ func (s *Service) SaveToken(token string) error {
 		return ErrLocked
 	}
 	if strings.TrimSpace(token) == "" {
-		return errors.New("Token 不能为空")
+		return l10n.Error("Token 不能为空")
 	}
 	if err := s.vault.Save(strings.TrimSpace(token)); err != nil {
 		return err

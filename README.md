@@ -1,28 +1,37 @@
 # Gist管理器
 
-使用 Go 和 [MyGo](https://github.com/egoist/mygo) 构建的原生 GitHub Gist 桌面客户端，支持 Windows 和 macOS。通过三栏工作区管理 Gist、浏览文件和编辑代码，提供浅色与深色主题、安全锁定及应用内更新。
+[![Listed on Awesome MyGo](https://awesomemygo.dev/badge.svg)](https://awesomemygo.dev/apps/gist)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+![Gist Manager 项目封面](docs/images/project-cover.png)
+
+使用 Go 和 [MyGo](https://github.com/egoist/mygo) 构建的原生 GitHub Gist 桌面客户端，支持 Windows 和 macOS。
+
+- 三栏工作区：搜索 Gist、浏览文件、编辑代码。
+- 原生代码编辑器：语法高亮、查找替换、撤销重做、多光标、折叠和自动换行。
+- 中文与英文界面、浅色与深色主题。
+- 程序密码、系统身份验证和应用内更新。
 
 ## 下载与安装
 
-在 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载安装包。当前正式版本为 **v1.0.6**。
+前往 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载最新安装包。
 
-| 系统 | 支持架构 | v1.0.6 安装包 |
+| 系统 | 支持架构 | 安装方式 |
 | --- | --- | --- |
-| Windows 10 / 11 | x64、ARM64，自动选择 | `GistManager-Setup-1.0.6-windows.exe` |
-| macOS 12 及以上 | Intel、Apple Silicon | `GistManager-1.0.6-macos.dmg` |
+| Windows 10 / 11 | x64、ARM64，安装器自动选择 | 运行合并安装器 `.exe` |
+| macOS 12 及以上 | Intel、Apple Silicon | 打开 Universal `.dmg`，将应用拖入“应用程序” |
 
-Windows 运行安装器，按提示选择目录；macOS 打开 DMG，将应用拖入“应用程序”。安装包内已包含程序运行所需文件。
+也可下载对应架构的便携 ZIP。所有安装包与便携包的校验值见 Release 中的 `SHA256SUMS.txt`。
 
 macOS 包使用 ad-hoc 签名，首次打开可能需要在“系统设置 → 隐私与安全性”中允许。
 
-## 使用
+## 开始使用
 
-1. 准备具有 Gist 读写权限的 GitHub Personal Access Token，在启动界面连接账号。
-2. 在左侧搜索和选择 Gist，在文件栏切换文件。代码默认只读，点击“编辑”后修改并保存。
-3. 使用“新建 Gist”“新增文件”和文件操作管理内容，也可复制 Raw 链接或打开 GitHub 页面。
-4. 在设置中配置软件密码、启动锁定和系统身份验证。
+1. 在 GitHub [创建 Personal Access Token](https://github.com/settings/tokens/new?scopes=gist&description=GistManager)，授予 `gist` 权限，然后在应用中连接账号。
+2. 在左侧搜索、选择 Gist，再选择文件。代码默认只读，点击“编辑”后修改并保存。
+3. 使用“新建 Gist”“新增文件”、重命名和删除操作管理内容，也可打开 GitHub 页面或复制 Raw 链接。
 
-支持分页加载全部 Gist，按描述、文件名或 ID 搜索，以及创建、编辑、重命名和删除 Gist 文件。原生编辑器提供语法高亮、撤销与重做、查找替换、多光标、折叠和自动换行，保存时保留文件换行格式。
+切换文件、刷新、锁定或退出前，应用会提示处理未保存的修改。私密 Gist 不会公开列出，但持有链接的人仍可访问。
 
 | 操作 | Windows | macOS |
 | --- | --- | --- |
@@ -31,76 +40,49 @@ macOS 包使用 ad-hoc 签名，首次打开可能需要在“系统设置 → �
 | 刷新 | `Ctrl+R` | `Cmd+R` |
 | 锁定 | `Ctrl+Shift+L` | `Cmd+Shift+L` |
 
-## 安全与更新
+## 语言与安全
 
-Token 保存在 Windows 凭据管理器或 macOS Keychain 中。启用锁定后，可通过软件密码或 Windows Hello / PIN、Touch ID 解锁；启用系统身份验证后，每次启动或锁定会自动请求一次验证，取消后仍可手动重试或输入软件密码。系统身份验证是否可用取决于设备配置。锁定会清空工作区并取消进行中的请求。切换、刷新、锁定及退出前会提示处理未保存的修改。
+界面默认跟随系统语言，也可在“系统设置 → 语言”中选择中文或 English；其他系统语言回退到英文。
 
-系统设置将程序密码与启动锁定分开管理。首次设置密码后开启启动锁定；修改密码不会改变锁定设置，关闭启动锁定也会保留程序密码。保存解锁方式的变更需要验证当前程序密码。
+GitHub Token 保存在 Windows 凭据管理器或 macOS Keychain 中。程序密码独立于 GitHub 密码；启用锁定后，可使用程序密码或设备支持的 Windows Hello / PIN、Touch ID 解锁。开启自动系统身份验证后，启动和锁定时会自动请求验证，取消后可手动重试或输入程序密码。
 
-在“程序密码”区域点击“清除密码”，可选择输入当前密码或使用系统身份验证。忘记密码时，也可在锁定页点击“忘记密码”，通过 Windows Hello / PIN 或 Touch ID 验证后清除，无需输入原密码，也无需事先开启自动身份验证。清除后关闭启动锁定和自动身份验证，保留 GitHub Token 与 Gist 数据；取消或验证失败不会清除密码。
+关闭启动锁定会保留程序密码。清除密码需要验证当前密码或通过系统身份验证；忘记密码时，可在锁定页通过系统身份验证清除。清除后关闭启动锁定与自动身份验证，保留 GitHub Token 和 Gist 数据。
 
-应用会自动检查最新正式版本，也可点击“检查更新”手动检查。发现新版本后，点击“下载更新”，下载适合当前系统和架构的便携包，通过 SHA-256 校验后点击“重启并安装”。安装前会再次向 GitHub 确认发布信息并校验文件，再替换应用并重新启动。未保存的修改会先提示处理；当前版本未提供适用的便携包时，可前往 GitHub 使用安装包更新。
+## 更新
 
-应用内更新会自动替换程序并重启，无需打开安装向导。启用启动锁定时，重启后仍需通过程序密码或系统身份验证解锁。
+应用会检查正式更新，也可点击“检查更新”手动检查。下载包通过 SHA-256 校验后，点击“重启并安装”即可自动替换程序并重启，无需安装向导。启用启动锁定时，重启后仍需解锁。
 
-Release 同时提供安装器、DMG、便携 ZIP 和 `SHA256SUMS.txt` 校验文件。Windows 可解压 ZIP 后运行程序；macOS 可解压 ZIP 后将应用移入“应用程序”。
+无法使用应用内更新时，可从 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载安装包。
 
-设置保存在系统应用数据目录下的 `Gist管理器/` 中。`--data-dir <目录>` 可指定独立数据目录，开发热重载使用 `Gist管理器-dev/`。
+## 开发与构建
 
-## 开发
-
-使用 MyGo v0.7.0，安装 [Go 1.27.3 或更新版本](https://go.dev/dl/)，然后执行：
+安装 [Go](https://go.dev/dl/)（工具链要求见 `go.mod`）：
 
 ```sh
 go mod download
 go run .
 ```
 
-`go tool mygo dev` 启动原生开发热重载。`go run . --demo` 使用隔离的内存演示数据，可体验界面和编辑操作。
+`go tool mygo dev` 启动开发热重载；`go run . --demo` 使用隔离的内存演示数据。
 
 ```sh
 go test ./... -timeout 120s
 go vet ./...
 ```
 
-测试覆盖 GitHub HTTP 接口、原生控件交互、密码清除与恢复、系统验证流程，以及无私钥更新的下载校验和安装前验证。`GIST_SNAPSHOTS` 可指定 UI 测试截图输出目录，`--demo --smoke <输出.png>` 可运行原生窗口、截图并退出。
-
-`go test ./internal/app -run '^$' -bench '^BenchmarkWorkspace$' -benchmem` 可测量浅色、深色工作区重绘及长文件滚动的耗时和内存分配。
-
-## 构建与发布
-
-本地构建：
+本地构建从 `mygo.json` 读取应用版本：
 
 ```sh
-go run ./cmd/release build -platform windows/universal -version 1.0.6
-go run ./cmd/release build -platform darwin/universal -version 1.0.6
+go run ./cmd/release build -platform windows/universal
+go run ./cmd/release build -platform darwin/universal
 ```
 
-输出位于 `dist/windows-universal/` 或 `dist/darwin-universal/`。Windows 使用项目内的 NSIS 脚本产出简体中文合并安装器，安装时自动选择原生 x64 或 ARM64 程序，包含中文安装、完成页和卸载界面。macOS 生成同时包含 Intel 和 Apple Silicon 的 Universal 应用；签名与 DMG 打包需要在 Mac 上执行。
+安装包分别输出至 `dist/windows-universal/` 和 `dist/darwin-universal/`。macOS 签名和 DMG 打包需在 Mac 上执行。
 
-[发布工作流](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行测试。新构建发布一个 Windows 合并安装器、一个 macOS Universal DMG，以及四种架构的便携 ZIP，应用内更新只下载适合当前设备的 ZIP。工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 发布产物，无需配置私钥或额外 Secret。
+[GitHub Actions](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行检查；匹配 `mygo.json` 版本号的正式标签触发构建，全部通过后发布两个合并安装包、四种架构的便携 ZIP 和校验文件。
 
-- 正式版：更新 `mygo.json` 的版本号后，推送匹配的 `v<版本>` 标签，例如 `v1.0.6`。
-- 推送 `main` 或创建 Pull Request 时运行检查；仅匹配版本号的正式标签触发安装包编译和发布。
-- 全部测试、构建和产物校验通过后，才公开 Release。
+应用设置位于系统应用数据目录下的 `Gist管理器/`。可通过 `--data-dir <目录>` 使用独立目录，开发热重载使用 `Gist管理器-dev/`。
 
-本地生成便携 ZIP：
+## 开源协议
 
-```sh
-go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -skip-dmg -version 1.0.6
-go run ./cmd/release pack -unsigned -platform windows-amd64 -version 1.0.6
-go run ./cmd/release pack -unsigned -platform darwin-arm64 -version 1.0.6
-```
-
-## 结构
-
-```text
-main.go              原生入口与窗口生命周期
-mygo.json            版本、图标、打包配置
-internal/app/        原生界面、编辑器、工作区与交互测试
-internal/gist/       GitHub HTTP 客户端、分页与 Raw 内容
-internal/security/   凭据库、密码与系统身份验证
-internal/update/     更新检查、SHA-256 校验、下载与安装
-cmd/release/         构建与打包工具
-resources/           应用资源
-```
+本项目采用 [MIT License](LICENSE)。

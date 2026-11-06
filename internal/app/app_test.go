@@ -11,11 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/security"
 	"github.com/Oranjekop/GistManager/internal/update"
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
+
+func TestMain(m *testing.M) {
+	i18n.SetLocaleFunc(func() string { return "zh" })
+	os.Exit(m.Run())
+}
 
 func fixtureApp(t testing.TB) *App {
 	t.Helper()
@@ -85,7 +92,7 @@ func TestNativeEditRenameAddDeleteWorkflow(t *testing.T) {
 		t.Fatal("cancel did not retain edits")
 	}
 	click(t, tt, "保存修改")
-	if a.issue != "" || a.dirty() || a.editing || !strings.Contains(a.current.Files["main.go"].Content, "中文输入验证") {
+	if a.issue != nil || a.dirty() || a.editing || !strings.Contains(a.current.Files["main.go"].Content, "中文输入验证") {
 		t.Fatal("save failed", a.issue)
 	}
 	click(t, tt, "重命名")
@@ -325,7 +332,7 @@ func TestStaleRequestCannotRestoreLockedWorkspace(t *testing.T) {
 	}
 	var queued func()
 	a.async = func(fn func()) { queued = fn }
-	a.perform("pending", func(context.Context) (func(), error) { return func() { a.user = &a.current.Owner }, nil })
+	a.perform(l10n.Msg("pending"), func(context.Context) (func(), error) { return func() { a.user = &a.current.Owner }, nil })
 	a.lock()
 	queued()
 	if a.user != nil || a.current != nil || !a.Security.State().Locked {

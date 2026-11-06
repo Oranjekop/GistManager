@@ -2,11 +2,12 @@ package security
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/Oranjekop/GistManager/internal/l10n"
 )
 
 var (
@@ -30,7 +31,7 @@ type winRTObject struct {
 
 func helloHRESULT(result uintptr) error {
 	if int32(result) < 0 {
-		return fmt.Errorf("Windows Hello 接口错误 (0x%08X)", uint32(result))
+		return l10n.Errorf("Windows Hello 接口错误 (0x%08X)", uint32(result))
 	}
 	return nil
 }
@@ -69,7 +70,7 @@ func runHello(ctx context.Context, verify bool, owner uintptr) (int32, error) {
 	if verify && owner != 0 {
 		valid, _, _ := isWindow.Call(owner)
 		if valid == 0 {
-			return 0, fmt.Errorf("Windows Hello 的所属窗口已关闭")
+			return 0, l10n.Errorf("Windows Hello 的所属窗口已关闭")
 		}
 	}
 	// WinRT initialization and every COM call stay in the same MTA apartment.
@@ -95,7 +96,7 @@ func runHello(ctx context.Context, verify bool, owner uintptr) (int32, error) {
 		// IUserConsentVerifierStatics inherits IInspectable (six base slots).
 		result, _, _ = syscall.SyscallN(factory.vtable[6], uintptr(unsafe.Pointer(factory)), uintptr(unsafe.Pointer(&operation)))
 	} else {
-		message, stringErr := helloString("验证身份以解锁或管理 Gist管理器密码")
+		message, stringErr := helloString(l10n.Text("验证身份以解锁或管理 Gist管理器密码"))
 		if stringErr != nil {
 			return 0, stringErr
 		}

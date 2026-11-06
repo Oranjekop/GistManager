@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Oranjekop/GistManager/internal/l10n"
 )
 
 // PublicKey optionally enables signed manifests for custom release feeds.
@@ -46,6 +47,19 @@ type State struct {
 	Available         string
 	Message           string
 	Downloaded, Total int64
+	message           l10n.Message
+}
+
+func (s *State) SetMessage(message l10n.Message) {
+	s.message = message
+	s.Message = l10n.Render(message)
+}
+
+func (s State) MessageText() string {
+	if s.message != nil {
+		return l10n.Render(s.message)
+	}
+	return s.Message
 }
 
 type Service struct {
@@ -73,7 +87,9 @@ func New(dir, version string) *Service {
 func (s *Service) State() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state
+	state := s.state
+	state.Message = state.MessageText()
+	return state
 }
 
 func (s *Service) DownloadPage() string {
@@ -94,10 +110,11 @@ func (s *Service) begin(status string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.busy {
-		return errors.New("更新操作正在进行")
+		return l10n.Error("更新操作正在进行")
 	}
 	s.busy = true
-	s.state.Status, s.state.Message = status, ""
+	s.state.Status = status
+	s.state.SetMessage(nil)
 	return nil
 }
 
@@ -106,7 +123,8 @@ func (s *Service) finish(err error) {
 	defer s.mu.Unlock()
 	s.busy = false
 	if err != nil {
-		s.state.Status, s.state.Message = "error", err.Error()
+		s.state.Status = "error"
+		s.state.SetMessage(l10n.FromError(err))
 	}
 }
 
@@ -142,7 +160,8 @@ func (s *Service) Check(ctx context.Context) (err error) {
 	if feedURL == "" {
 		if !isUpdateAvailable(current, version) {
 			s.mu.Lock()
-			s.state.Status, s.state.Message = "latest", "当前已是最新版本"
+			s.state.Status = "latest"
+			s.state.SetMessage(l10n.Msg("当前已是最新版本"))
 			s.mu.Unlock()
 			return nil
 		}
@@ -154,11 +173,13 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		defer s.mu.Unlock()
 		s.state.Available = version
 		if errors.Is(manifestErr, errNoArchive) {
-			s.state.Status, s.state.Message = "manual", "发现新版本 "+version+"，请前往 GitHub 下载并安装"
+			s.state.Status = "manual"
+			s.state.SetMessage(l10n.Msgf("发现新版本 %s，请前往 GitHub 下载并安装", version))
 			return nil
 		}
 		s.manifest, s.tag = manifest, release.TagName
-		s.state.Status, s.state.Message = "available", "发现新版本 "+version+"，可以下载并重启安装"
+		s.state.Status = "available"
+		s.state.SetMessage(l10n.Msgf("发现新版本 %s，可以下载并重启安装", version))
 		return nil
 	}
 	data, err := s.get(ctx, feedURL, 2<<20)
@@ -174,17 +195,19 @@ func (s *Service) Check(ctx context.Context) (err error) {
 		return err
 	}
 	if manifest.Version != version {
-		return errors.New("更新清单与正式发布版本不匹配")
+		return l10n.Error("更新清单与正式发布版本不匹配")
 	}
 	available := isUpdateAvailable(current, manifest.Version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !available {
-		s.state.Status, s.state.Message, s.state.Available = "latest", "当前已是最新版本", ""
+		s.state.Status, s.state.Available = "latest", ""
+		s.state.SetMessage(l10n.Msg("当前已是最新版本"))
 		return nil
 	}
 	s.manifest, s.envelope = manifest, envelope
-	s.state.Status, s.state.Available, s.state.Message = "available", manifest.Version, "发现新版本 "+manifest.Version
+	s.state.Status, s.state.Available = "available", manifest.Version
+	s.state.SetMessage(l10n.Msgf("发现新版本 %s", manifest.Version))
 	return nil
 }
 
@@ -199,7 +222,7 @@ func isUpdateAvailable(current State, candidate string) bool {
 func ParsePublicKey(key string) (ed25519.PublicKey, error) {
 	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(key))
 	if err != nil || len(data) != ed25519.PublicKeySize {
-		return nil, errors.New("未配置有效的更新签名公钥")
+		return nil, l10n.Error("未配置有效的更新签名公钥")
 	}
 	return ed25519.PublicKey(data), nil
 }
@@ -212,7 +235,7 @@ func Verify(envelope Envelope, key, platform string) (Manifest, error) {
 	}
 	sig, err := base64.StdEncoding.DecodeString(envelope.Signature)
 	if err != nil || !ed25519.Verify(pub, envelope.Payload, sig) {
-		return manifest, errors.New("更新签名校验失败")
+		return manifest, l10n.Error("更新签名校验失败")
 	}
 	if err = json.Unmarshal(envelope.Payload, &manifest); err != nil {
 		return manifest, err
@@ -220,7 +243,7 @@ func Verify(envelope Envelope, key, platform string) (Manifest, error) {
 	u, err := url.Parse(manifest.URL)
 	hash, hashErr := hex.DecodeString(manifest.SHA256)
 	if err != nil || u.Scheme != "https" || u.Host == "" || manifest.Platform != platform || !versionPattern.MatchString(manifest.Version) || manifest.Size <= 0 || manifest.Size > maxDownload || hashErr != nil || len(hash) != sha256.Size {
-		return Manifest{}, errors.New("更新清单无效或平台不匹配")
+		return Manifest{}, l10n.Error("更新清单无效或平台不匹配")
 	}
 	return manifest, nil
 }
@@ -238,11 +261,11 @@ func (s *Service) get(ctx context.Context, location string, limit int64) ([]byte
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("更新服务返回 HTTP %d", resp.StatusCode)
+		return nil, l10n.Errorf("更新服务返回 HTTP %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err == nil && int64(len(data)) > limit {
-		err = errors.New("更新响应超过大小限制")
+		err = l10n.Error("更新响应超过大小限制")
 	}
 	return data, err
 }
@@ -251,7 +274,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 	s.mu.Lock()
 	if s.busy || s.state.Status != "available" {
 		s.mu.Unlock()
-		return errors.New("当前没有可下载的更新")
+		return l10n.Error("当前没有可下载的更新")
 	}
 	manifest := s.manifest
 	s.busy, s.state.Status = true, "downloading"
@@ -269,7 +292,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载失败 (HTTP %d)", resp.StatusCode)
+		return l10n.Errorf("下载失败 (HTTP %d)", resp.StatusCode)
 	}
 	f, err := os.CreateTemp(s.dir, "native-update-*.zip")
 	if err != nil {
@@ -295,7 +318,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 			hash.Write(buf[:n])
 			written += int64(n)
 			if written > manifest.Size {
-				return errors.New("更新包大小不正确")
+				return l10n.Error("更新包大小不正确")
 			}
 			if time.Since(last) > 100*time.Millisecond {
 				s.mu.Lock()
@@ -316,7 +339,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 		}
 	}
 	if written != manifest.Size || hex.EncodeToString(hash.Sum(nil)) != manifest.SHA256 {
-		return errors.New("更新包校验失败，请重新下载")
+		return l10n.Error("更新包校验失败，请重新下载")
 	}
 	if err = f.Sync(); err != nil {
 		return err
@@ -326,7 +349,7 @@ func (s *Service) Download(ctx context.Context, progress func(State)) (err error
 	}
 	s.mu.Lock()
 	s.archive, s.state.Status, s.state.Downloaded = f.Name(), "downloaded", written
-	s.state.Message = "更新已下载并通过 SHA-256 校验，可以重启安装"
+	s.state.SetMessage(l10n.Msg("更新已下载并通过 SHA-256 校验，可以重启安装"))
 	s.mu.Unlock()
 	return nil
 }
