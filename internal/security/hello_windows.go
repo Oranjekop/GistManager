@@ -96,7 +96,7 @@ func runHello(ctx context.Context, verify bool, owner uintptr) (int32, error) {
 		// IUserConsentVerifierStatics inherits IInspectable (six base slots).
 		result, _, _ = syscall.SyscallN(factory.vtable[6], uintptr(unsafe.Pointer(factory)), uintptr(unsafe.Pointer(&operation)))
 	} else {
-		message, stringErr := helloString(l10n.Text("验证身份以解锁或管理 Gist管理器密码"))
+		message, stringErr := helloString(l10n.Text("验证身份以解锁或管理 GistManager密码"))
 		if stringErr != nil {
 			return 0, stringErr
 		}

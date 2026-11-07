@@ -1,9 +1,9 @@
-# Gist管理器
+# GistManager
 
 [![Listed on Awesome MyGo](https://awesomemygo.dev/badge.svg)](https://awesomemygo.dev/apps/gist)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-![Gist Manager 项目封面](docs/images/project-cover.png)
+![GistManager 项目封面](docs/images/project-cover.png)
 
 使用 Go 和 [MyGo](https://github.com/egoist/mygo) 构建的原生 GitHub Gist 桌面客户端，支持 Windows 和 macOS。
 
@@ -54,6 +54,8 @@ GitHub Token 保存在 Windows 凭据管理器或 macOS Keychain 中。程序密
 
 无法使用应用内更新时，可从 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载安装包。
 
+macOS 上仍使用中文应用包名的安装，需要通过 DMG 安装 `GistManager.app` 完成首次改名升级，配置会自动沿用。
+
 ## 开发与构建
 
 安装 [Go](https://go.dev/dl/)（工具链要求见 `go.mod`）：
@@ -81,7 +83,7 @@ go run ./cmd/release build -platform darwin/universal
 
 [GitHub Actions](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行检查；匹配 `mygo.json` 版本号的正式标签触发构建，全部通过后发布两个合并安装包、四种架构的便携 ZIP 和校验文件。
 
-应用设置位于系统应用数据目录下的 `Gist管理器/`。可通过 `--data-dir <目录>` 使用独立目录，开发热重载使用 `Gist管理器-dev/`。
+应用设置位于系统应用数据目录下的 `GistManager/`。已有安装会继续使用原配置目录，保留账号、安全设置和语言偏好。可通过 `--data-dir <目录>` 使用独立目录，开发热重载使用 `GistManager-dev/`。
 
 ## 开源协议
 

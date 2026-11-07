@@ -178,14 +178,20 @@ func applyPlan(path, publicKey string, relaunch bool, client *http.Client) error
 	}
 	newTarget := filepath.Join(work, "GistManager.exe")
 	if runtime.GOOS == "darwin" {
-		newTarget = filepath.Join(work, "Gist管理器.app")
+		newTarget = filepath.Join(work, "GistManager.app")
+		if _, err := os.Stat(newTarget); os.IsNotExist(err) {
+			newTarget = filepath.Join(work, "Gist管理器.app")
+		}
 	}
 	if runtime.GOOS == "linux" {
 		newTarget = filepath.Join(work, "GistManager")
 	}
 	entry := newTarget
 	if runtime.GOOS == "darwin" {
-		entry = filepath.Join(newTarget, "Contents", "MacOS", "Gist管理器")
+		entry = filepath.Join(newTarget, "Contents", "MacOS", "GistManager")
+		if _, err := os.Stat(entry); os.IsNotExist(err) {
+			entry = filepath.Join(newTarget, "Contents", "MacOS", "Gist管理器")
+		}
 	}
 	info, err := os.Stat(entry)
 	if err != nil {

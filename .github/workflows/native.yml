@@ -97,7 +97,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           for ARCH in universal amd64 arm64; do
-            APP="dist/darwin-$ARCH/Gist管理器.app"
+            APP="dist/darwin-$ARCH/GistManager.app"
             EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
             test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "$VERSION"
             case "$ARCH" in
@@ -130,7 +130,7 @@ jobs:
             INSTALLER="dist/$TARGET/$SLUG-$VERSION.dmg"
             DESTINATION="GistManager-$VERSION-macos.dmg"
           else
-            INSTALLER="dist/$TARGET/Gist管理器 Setup $VERSION.exe"
+            INSTALLER="dist/$TARGET/GistManager Setup $VERSION.exe"
             DESTINATION="GistManager-Setup-$VERSION-windows.exe"
           fi
           cp "$INSTALLER" "release/$DESTINATION"

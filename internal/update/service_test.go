@@ -113,7 +113,7 @@ func TestCheckDownloadAndTampering(t *testing.T) {
 func TestInstallVerifiedArchiveAndRejectTraversal(t *testing.T) {
 	name := "GistManager.exe"
 	if runtime.GOOS == "darwin" {
-		name = "Gist管理器.app/Contents/MacOS/Gist管理器"
+		name = "GistManager.app/Contents/MacOS/GistManager"
 	}
 	if runtime.GOOS == "linux" {
 		name = "GistManager"
@@ -139,7 +139,7 @@ func TestInstallVerifiedArchiveAndRejectTraversal(t *testing.T) {
 	}
 	installed := target
 	if runtime.GOOS == "darwin" {
-		installed = filepath.Join(target, "Contents/MacOS/Gist管理器")
+		installed = filepath.Join(target, "Contents/MacOS/GistManager")
 	}
 	data, err := os.ReadFile(installed)
 	if err != nil || string(data) != "new native executable" {

@@ -89,3 +89,26 @@ func TestPortableArchiveWithoutSigningKey(t *testing.T) {
 		t.Fatal("unexpected portable archive layout")
 	}
 }
+
+func TestMacArchiveUsesGistManagerBundleAndExecutable(t *testing.T) {
+	t.Chdir(t.TempDir())
+	binary := filepath.Join("dist", "darwin-arm64", "GistManager.app", "Contents", "MacOS", "GistManager")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pack([]string{"-unsigned", "-platform", "darwin-arm64", "-version", "1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.OpenReader("release/GistManager-1.0.0-darwin-arm64.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	if len(archive.File) != 1 || archive.File[0].Name != "GistManager.app/Contents/MacOS/GistManager" ||
+		archive.File[0].Mode().Perm()&0o111 != 0o111 {
+		t.Fatal("incorrect renamed macOS bundle or missing executable permissions")
+	}
+}

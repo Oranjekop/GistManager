@@ -70,9 +70,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		*dataDir = filepath.Join(base, config.Name)
-		if mygo.IsDev() {
-			*dataDir += "-dev"
+		*dataDir, err = defaultDataDirectory(base, config.Name, mygo.IsDev())
+		if err != nil {
+			log.Fatal(err)
 		}
 		if !*demo && !mygo.IsDev() {
 			if err := security.ImportLegacy(*dataDir, base); err != nil {
@@ -96,6 +96,10 @@ func main() {
 		return
 	}
 	var vault security.Vault = security.SystemVault{}
+	if !mygo.App.IsPackaged() && !mygo.IsDev() {
+		// Unpackaged runs used the old app name as their credential service.
+		vault = security.SystemVault{Service: "Gist管理器"}
+	}
 	var biometric security.Biometric = security.SystemBiometric{}
 	if *demo {
 		vault, biometric = &app.DemoVault{}, app.DemoBiometric{}
@@ -122,13 +126,8 @@ func main() {
 	}
 	mygo.App.WhenReady(func() {
 		a.Window = mygo.NewWindow(mygo.WindowOptions{
-			Title: l10n.Text("Gist管理器"), Width: 1500, Height: 940, MinWidth: 1000, MinHeight: 680,
+			Title: l10n.Text("GistManager"), Width: 1500, Height: 940, MinWidth: 1000, MinHeight: 680,
 			Content: ui.View(a.View),
-		})
-		mygo.App.OnLocaleChanged(func(string) {
-			if !a.Window.IsDestroyed() {
-				a.Window.SetTitle(l10n.Text("Gist管理器"))
-			}
 		})
 		// Older Windows update helpers pass SW_HIDE to the relaunched app.
 		// Show the workspace before startup authentication can open its prompt.
@@ -173,4 +172,26 @@ func main() {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func defaultDataDirectory(base, name string, dev bool) (string, error) {
+	suffix := ""
+	if dev {
+		suffix = "-dev"
+	}
+	directory := filepath.Join(base, name+suffix)
+	// Keep existing installations in place, including pending update paths.
+	for _, candidate := range []string{directory, filepath.Join(base, "Gist管理器"+suffix)} {
+		info, err := os.Stat(candidate)
+		if err == nil {
+			if !info.IsDir() {
+				return "", fmt.Errorf("application data path is not a directory: %s", candidate)
+			}
+			return candidate, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+	}
+	return directory, nil
 }

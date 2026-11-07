@@ -75,7 +75,7 @@ func observeMainWindow(pid uint32) func() bool {
 		getTitle.Call(window, uintptr(unsafe.Pointer(&title[0])), uintptr(len(title)))
 		visible, _, _ := isVisible.Call(window)
 		name := syscall.UTF16ToString(title)
-		if visible != 0 && (name == "Gist管理器" || name == "Gist Manager") {
+		if visible != 0 && name == "GistManager" {
 			found = true
 			return 0
 		}

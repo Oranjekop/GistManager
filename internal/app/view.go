@@ -90,7 +90,7 @@ func (a *App) header(c *ui.Context) {
 			ui.Box(c).Size(38, 38).Radius(8).Background(t.Accent).Center().Children(func() { ui.Text(c, "G/").Bold().FontSize(23).TextColor(t.AccentText) })
 		}
 		ui.Column(c).Gap(1).Children(func() {
-			ui.Text(c, l10n.Text("Gist管理器")).Bold().FontSize(18)
+			ui.Text(c, l10n.Text("GistManager")).Bold().FontSize(18)
 			if a.Demo {
 				ui.Text(c, l10n.Text("演示模式")).FontSize(11).TextColor(t.TextMuted)
 			}

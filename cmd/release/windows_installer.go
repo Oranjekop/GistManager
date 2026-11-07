@@ -166,6 +166,12 @@ func windowsPayloadFiles(config installerConfig, stage, output string) (string, 
 
 func renderWindowsInstaller(config installerConfig, files, output, icon string) string {
 	executable := config.Name + ".exe"
+	legacyCleanup := ""
+	if config.Name == "GistManager" && config.Identifier == "com.perzikkop.gist-manager" {
+		legacyCleanup = `  Delete "$INSTDIR\Gist管理器.exe"
+  Delete "$SMPROGRAMS\Gist管理器.lnk"
+  Delete "$DESKTOP\Gist管理器.lnk"`
+	}
 	return strings.NewReplacer(
 		"@NAME@", nsisQuote(config.Name),
 		"@DISPLAY_NAME@", nsisEscape(config.Name),
@@ -176,6 +182,7 @@ func renderWindowsInstaller(config installerConfig, files, output, icon string) 
 		"@OUTPUT@", nsisQuote(output),
 		"@ICON@", nsisQuote(icon),
 		"@FILES@", files,
+		"@LEGACY_CLEANUP@", legacyCleanup,
 	).Replace(windowsInstallerTemplate)
 }
 

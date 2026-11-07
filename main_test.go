@@ -65,3 +65,34 @@ func TestPackagedNativeUpdateHelper(t *testing.T) {
 		t.Fatal("native updater changed unrelated installation files")
 	}
 }
+
+func TestDefaultDataDirectoryPreservesExistingInstallation(t *testing.T) {
+	for _, dev := range []bool{false, true} {
+		suffix := ""
+		if dev {
+			suffix = "-dev"
+		}
+		root := t.TempDir()
+		current := filepath.Join(root, "GistManager"+suffix)
+		legacy := filepath.Join(root, "Gist管理器"+suffix)
+		check := func(want string) {
+			t.Helper()
+			got, err := defaultDataDirectory(root, "GistManager", dev)
+			if err != nil || got != want {
+				t.Fatalf("directory = %q, %v; want %q", got, err, want)
+			}
+		}
+		check(current)
+		if err := os.Mkdir(legacy, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacy, "layout.json"), []byte(`{"language":"en"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		check(legacy)
+		if err := os.Mkdir(current, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		check(current)
+	}
+}

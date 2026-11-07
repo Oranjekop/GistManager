@@ -51,7 +51,7 @@ func (SystemBiometric) Verify(ctx context.Context) error {
 	done := make(chan bool, 1)
 	block := objc.NewBlock(func(_ objc.Block, success bool, _ objc.ID) { done <- success })
 	defer block.Release()
-	reason := objc.ID(objc.GetClass("NSString")).Send(objc.RegisterName("alloc")).Send(objc.RegisterName("initWithUTF8String:"), l10n.Text("解锁 Gist管理器"))
+	reason := objc.ID(objc.GetClass("NSString")).Send(objc.RegisterName("alloc")).Send(objc.RegisterName("initWithUTF8String:"), l10n.Text("解锁 GistManager"))
 	defer reason.Send(objc.RegisterName("release"))
 	object.Send(objc.RegisterName("evaluatePolicy:localizedReason:reply:"), int64(1), reason, block)
 	select {

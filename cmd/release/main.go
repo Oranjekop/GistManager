@@ -206,12 +206,12 @@ func pack(args []string) error {
 		}
 	}
 	if *source == "" {
-		name := "Gist管理器.exe"
+		name := "GistManager.exe"
 		if strings.HasPrefix(*platform, "darwin-") {
-			name = "Gist管理器.app"
+			name = "GistManager.app"
 		}
 		if strings.HasPrefix(*platform, "linux-") {
-			name = "gist管理器"
+			name = "GistManager"
 		}
 		*source = filepath.Join("dist", *platform, name)
 	}
@@ -222,7 +222,7 @@ func pack(args []string) error {
 	archive := filepath.Join(*out, filename)
 	root := "GistManager.exe"
 	if strings.HasPrefix(*platform, "darwin-") {
-		root = "Gist管理器.app"
+		root = "GistManager.app"
 	}
 	if strings.HasPrefix(*platform, "linux-") {
 		root = "GistManager"
@@ -309,7 +309,7 @@ func archiveApp(source, target, root string) (err error) {
 			return err
 		}
 		header.Name, header.Method = name, zip.Deflate
-		if strings.HasPrefix(root, "Gist管理器.app") && strings.Contains(name, "/Contents/MacOS/") {
+		if strings.HasPrefix(root, "GistManager.app") && strings.Contains(name, "/Contents/MacOS/") {
 			header.SetMode(entry.Mode() | 0o111)
 		}
 		part, err := writer.CreateHeader(header)

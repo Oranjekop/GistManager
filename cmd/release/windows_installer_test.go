@@ -9,7 +9,7 @@ import (
 
 func TestChineseInstallerPreservesApplicationResources(t *testing.T) {
 	stage := t.TempDir()
-	config := installerConfig{Name: "Gist管理器", Slug: "gist-manager", Identifier: "com.perzikkop.gist-manager", Version: "1.0.3"}
+	config := installerConfig{Name: "GistManager", Slug: "gist-manager", Identifier: "com.perzikkop.gist-manager", Version: "1.0.3"}
 	output := filepath.Join(stage, config.Name+" Setup "+config.Version+" amd64.exe")
 	frameworkInstaller := config.Slug + "-setup-" + config.Version + "-amd64.exe"
 	for _, file := range []string{config.Name + ".exe", "icon.png", "update-public.key", filepath.Base(output), frameworkInstaller, "helper.exe"} {
@@ -37,7 +37,9 @@ func TestChineseInstallerPreservesApplicationResources(t *testing.T) {
 			t.Fatal("installer included another installer", installer)
 		}
 	}
-	for _, text := range []string{`MUI_LANGUAGE "SimpChinese"`, "创建桌面快捷方式", "运行 Gist管理器", `MUI_UNPAGE_CONFIRM`, `MUI_UNPAGE_INSTFILES`} {
+	for _, text := range []string{`MUI_LANGUAGE "SimpChinese"`, "创建桌面快捷方式", "运行 GistManager", `MUI_UNPAGE_CONFIRM`, `MUI_UNPAGE_INSTFILES`,
+		`InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.perzikkop.gist-manager" "InstallLocation"`,
+		`Delete "$INSTDIR\Gist管理器.exe"`, `Delete "$SMPROGRAMS\Gist管理器.lnk"`, `Delete "$DESKTOP\Gist管理器.lnk"`} {
 		if !strings.Contains(script, text) {
 			t.Errorf("missing Chinese installer UI: %s", text)
 		}
@@ -46,7 +48,7 @@ func TestChineseInstallerPreservesApplicationResources(t *testing.T) {
 
 func TestUniversalWindowsInstallerSelectsNativePayload(t *testing.T) {
 	root := t.TempDir()
-	config := installerConfig{Name: "Gist管理器", Slug: "gist-manager", Identifier: "com.perzikkop.gist-manager", Version: "1.0.5"}
+	config := installerConfig{Name: "GistManager", Slug: "gist-manager", Identifier: "com.perzikkop.gist-manager", Version: "1.0.5"}
 	output := filepath.Join(root, "windows-universal", config.Name+" Setup "+config.Version+".exe")
 	payloads := map[string]string{}
 	for _, arch := range []string{"amd64", "arm64"} {

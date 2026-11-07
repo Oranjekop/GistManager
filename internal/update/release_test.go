@@ -120,7 +120,7 @@ func TestRejectInvalidReleaseMetadata(t *testing.T) {
 func TestUnsignedInstallerRevalidatesGitHubRelease(t *testing.T) {
 	application := "GistManager.exe"
 	if runtime.GOOS == "darwin" {
-		application = "Gist管理器.app/Contents/MacOS/Gist管理器"
+		application = "GistManager.app/Contents/MacOS/GistManager"
 	}
 	archive := archiveFixture(t, application, "new application")
 	platform := runtime.GOOS + "-" + runtime.GOARCH
@@ -140,7 +140,7 @@ func TestUnsignedInstallerRevalidatesGitHubRelease(t *testing.T) {
 			target, executable := filepath.Join(dir, "installed.exe"), ""
 			if runtime.GOOS == "darwin" {
 				target = filepath.Join(dir, "Installed.app")
-				executable = filepath.Join(target, "Contents", "MacOS", "Gist管理器")
+				executable = filepath.Join(target, "Contents", "MacOS", "GistManager")
 				if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -261,8 +261,8 @@ func TestGitHubReleaseUpdateIntegration(t *testing.T) {
 	target := filepath.Join(dir, "GistManager.exe")
 	executable := target
 	if runtime.GOOS == "darwin" {
-		target = filepath.Join(dir, "Gist管理器.app")
-		executable = filepath.Join(target, "Contents", "MacOS", "Gist管理器")
+		target = filepath.Join(dir, "GistManager.app")
+		executable = filepath.Join(target, "Contents", "MacOS", "GistManager")
 		if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -277,6 +277,11 @@ func TestGitHubReleaseUpdateIntegration(t *testing.T) {
 	}
 	if err := ApplyPlan(path, "", false); err != nil {
 		t.Fatal("published archive failed to install", err)
+	}
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat(executable); os.IsNotExist(err) {
+			executable = filepath.Join(target, "Contents", "MacOS", "Gist管理器")
+		}
 	}
 	output, err := exec.Command(executable, "--version").Output()
 	if err != nil || strings.TrimSpace(string(output)) != s.manifest.Version {

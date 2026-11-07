@@ -2,7 +2,7 @@ package l10n
 
 var english = map[string]string{
 	"1 个文件":              "1 file",
-	"Gist管理器":            "Gist Manager",
+	"GistManager":        "GistManager",
 	"知道了":                "Dismiss",
 	"取消":                 "Cancel",
 	"演示模式":               "Demo",
@@ -182,7 +182,7 @@ var english = map[string]string{
 	"读取 %s 失败 (%d)":                             "Could not read %s (%d)",
 	"无法加载 Touch ID，请使用软件密码":                     "Could not load Touch ID; use your app password",
 	"此 Mac 未配置 Touch ID，请使用软件密码":                "Touch ID is not configured; use your app password",
-	"解锁 Gist管理器":                                "Unlock Gist Manager",
+	"解锁 GistManager":                            "Unlock GistManager",
 	"Touch ID 已取消或验证失败":                         "Touch ID was canceled or failed",
 	"无效的旧版凭据":                                   "Invalid legacy credentials",
 	"旧版凭据长度不正确":                                 "Invalid legacy credential length",
@@ -197,7 +197,7 @@ var english = map[string]string{
 	"凭据为空":                                      "Credentials are empty",
 	"Windows Hello 接口错误 (0x%08X)":               "Windows Hello error (0x%08X)",
 	"Windows Hello 的所属窗口已关闭":                    "The Windows Hello owner window was closed",
-	"验证身份以解锁或管理 Gist管理器密码":                      "Verify your identity to unlock Gist Manager or manage its password",
+	"验证身份以解锁或管理 GistManager密码":                  "Verify your identity to unlock GistManager or manage its password",
 	"应用尚未解锁":                                    "App is locked",
 	"安全设置损坏，无法安全启动: %w":                         "Security settings are damaged; the app cannot start safely: %w",
 	"安全设置不完整，请恢复 security.json 备份":              "Security settings are incomplete; restore your security.json backup",

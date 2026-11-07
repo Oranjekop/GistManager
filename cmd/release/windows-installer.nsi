@@ -4,6 +4,7 @@ SetCompressor /SOLID lzma
 Name @NAME@
 OutFile @OUTPUT@
 InstallDir "$LOCALAPPDATA\Programs\@DIRECTORY@"
+InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\@IDENTIFIER@" "InstallLocation"
 RequestExecutionLevel user
 BrandingText " "
 
@@ -38,6 +39,7 @@ Section
   SetOutPath "$INSTDIR"
 @FILES@
   WriteUninstaller "$INSTDIR\Uninstall.exe"
+@LEGACY_CLEANUP@
   CreateShortCut "$SMPROGRAMS\@DISPLAY_NAME@.lnk" "$INSTDIR\@EXECUTABLE@"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\@IDENTIFIER@" "DisplayName" @NAME@
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\@IDENTIFIER@" "DisplayVersion" @VERSION@
