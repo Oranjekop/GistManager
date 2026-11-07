@@ -69,7 +69,7 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, platform: windows/universal, target: windows-universal, updateOS: windows }
-          - { os: macos-15, platform: darwin/universal, target: darwin-universal, updateOS: darwin }
+          - { os: macos-26, platform: darwin/universal, target: darwin-universal, updateOS: darwin }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -98,10 +98,16 @@ jobs:
         run: |
           for ARCH in universal amd64 arm64; do
             APP="dist/darwin-$ARCH/GistManager.app"
-            EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
-            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "$VERSION"
+            PLIST="$APP/Contents/Info.plist"
+            EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "$VERSION"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$PLIST")" = AppIcon
+            test -s "$APP/Contents/Resources/Assets.car"
+            ICON_FILE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$PLIST")
+            test -s "$APP/Contents/Resources/$ICON_FILE"
             case "$ARCH" in
-              universal) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch x86_64 arm64
+              universal) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch x86_64
+                         lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch arm64
                          test "$("$APP/Contents/MacOS/$EXECUTABLE" --version)" = "$VERSION" ;;
               amd64) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch x86_64 ;;
               arm64) lipo "$APP/Contents/MacOS/$EXECUTABLE" -verify_arch arm64 ;;

@@ -1,6 +1,8 @@
 # Application icon
 
-Generated with the built-in `image_gen` tool on 2026-10-22. Final asset: `resources/icon.png`, 1254 x 1254 RGBA PNG with transparent corners. MyGo derives the platform icon sizes during packaging; the native header displays the same image.
+Generated with the built-in `image_gen` tool on 2026-10-22. The original `resources/icon.png` is a 1254 × 1254 RGBA PNG used by the native header and Windows.
+
+On macOS, MyGo compiles `assets/macos/GistManager.icon` with Xcode 26 or later. The document uses the blue gradient as the icon's background and the two code cards as foreground layers, so the system applies a single rounded shape. The bundle contains `Assets.car` for modern macOS and `AppIcon.icns` for older versions. With only Command Line Tools installed, MyGo falls back to an ICNS generated from the original PNG; the release workflow requires the compiled catalog.
 
 Prompt:
 
