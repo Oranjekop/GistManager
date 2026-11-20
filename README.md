@@ -19,7 +19,7 @@
 | 系统 | 支持架构 | 安装方式 |
 | --- | --- | --- |
 | Windows 10 / 11 | x64、ARM64，安装器自动选择 | 运行合并安装器 `.exe` |
-| macOS 12 及以上 | Intel、Apple Silicon | 打开 Universal `.dmg`，将应用拖入“应用程序” |
+| macOS 12 及以上 | Intel、Apple Silicon | 运行 Universal `.pkg`，安装到“应用程序” |
 
 也可下载对应架构的便携 ZIP。所有安装包与便携包的校验值见 Release 中的 `SHA256SUMS.txt`。
 
@@ -54,7 +54,7 @@ GitHub Token 保存在 Windows 凭据管理器或 macOS Keychain 中。程序密
 
 无法使用应用内更新时，可从 [GitHub Releases](https://github.com/Oranjekop/GistManager/releases/latest) 下载安装包。
 
-macOS 上仍使用中文应用包名的安装，需要通过 DMG 安装 `GistManager.app` 完成首次改名升级，配置会自动沿用。
+macOS 上仍使用中文应用包名的安装，需要通过 PKG 安装 `GistManager.app` 完成首次改名升级，配置会自动沿用。
 
 ## 开发与构建
 
@@ -79,7 +79,7 @@ go run ./cmd/release build -platform windows/universal
 go run ./cmd/release build -platform darwin/universal
 ```
 
-安装包分别输出至 `dist/windows-universal/` 和 `dist/darwin-universal/`。macOS 签名和 DMG 打包需在 Mac 上执行。
+安装包分别输出至 `dist/windows-universal/` 和 `dist/darwin-universal/`。macOS 应用签名和 PKG 打包需在 Mac 上执行。
 
 [GitHub Actions](.github/workflows/native.yml) 在 Windows、macOS Intel 和 Apple Silicon 上运行检查；匹配 `mygo.json` 版本号的正式标签触发构建，全部通过后发布两个合并安装包、四种架构的便携 ZIP 和校验文件。
 

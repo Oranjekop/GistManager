@@ -114,7 +114,7 @@ func build(args []string) error {
 	platform := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "MyGo target platform(s)")
 	version := flags.String("version", "", "Override build version")
 	sign := flags.String("sign", "", "macOS signing identity")
-	skipDMG := flags.Bool("skip-dmg", false, "Skip macOS DMG")
+	appOnly := flags.Bool("app-only", false, "Skip the macOS PKG installer")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func build(args []string) error {
 	if *sign != "" {
 		command = append(command, "-sign", *sign)
 	}
-	if *skipDMG {
+	if runtime.GOOS == "darwin" {
 		command = append(command, "-skip-dmg")
 	}
 	cmd := exec.Command("go", command...)
@@ -153,7 +153,31 @@ func build(args []string) error {
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	return buildWindowsInstallers(*platform)
+	if err := buildWindowsInstallers(*platform); err != nil {
+		return err
+	}
+	if runtime.GOOS != "darwin" || *appOnly {
+		return nil
+	}
+	for _, target := range strings.Split(*platform, ",") {
+		target = strings.TrimSpace(target)
+		if !strings.HasPrefix(target, "darwin/") {
+			continue
+		}
+		out, _ := config["out"].(string)
+		if out == "" {
+			out = "dist"
+		}
+		name, _ := config["name"].(string)
+		dir := filepath.Join(out, strings.ReplaceAll(target, "/", "-"))
+		pkg := exec.Command("productbuild", "--component", filepath.Join(dir, name+".app"), "/Applications",
+			filepath.Join(dir, name+"-"+buildVersion+"-macos.pkg"))
+		pkg.Stdout, pkg.Stderr = os.Stdout, os.Stderr
+		if err := pkg.Run(); err != nil {
+			return fmt.Errorf("build macOS installer: %w", err)
+		}
+	}
+	return nil
 }
 
 func expandBuildPlatforms(platforms string) string {

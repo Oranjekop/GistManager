@@ -89,7 +89,7 @@ jobs:
       - name: Build macOS applications for architecture-specific updates
         if: runner.os == 'macOS'
         shell: bash
-        run: go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -skip-dmg -version '${{ needs.prepare.outputs.version }}'
+        run: go run ./cmd/release build -platform darwin/amd64,darwin/arm64 -app-only -version '${{ needs.prepare.outputs.version }}'
       - name: Verify macOS bundles
         if: runner.os == 'macOS'
         shell: bash
@@ -132,9 +132,13 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           if [[ "$RUNNER_OS" == macOS ]]; then
-            SLUG=$(jq -r .slug mygo.json)
-            INSTALLER="dist/$TARGET/$SLUG-$VERSION.dmg"
-            DESTINATION="GistManager-$VERSION-macos.dmg"
+            INSTALLER="dist/$TARGET/GistManager-$VERSION-macos.pkg"
+            DESTINATION="GistManager-$VERSION-macos.pkg"
+            EXPANDED=$(mktemp -d)
+            pkgutil --expand-full "$INSTALLER" "$EXPANDED/pkg"
+            PACKED_APP=$(find "$EXPANDED/pkg" -type d -name GistManager.app -print -quit)
+            test -n "$PACKED_APP"
+            codesign --verify --deep --strict "$PACKED_APP"
           else
             INSTALLER="dist/$TARGET/GistManager Setup $VERSION.exe"
             DESTINATION="GistManager-Setup-$VERSION-windows.exe"
@@ -176,7 +180,7 @@ jobs:
             test -s "release/GistManager-$VERSION-$TARGET.zip"
           done
           test -s "release/GistManager-Setup-$VERSION-windows.exe"
-          test -s "release/GistManager-$VERSION-macos.dmg"
+          test -s "release/GistManager-$VERSION-macos.pkg"
           test "$(find release -maxdepth 1 -type f | wc -l)" -eq 6
           (cd release && sha256sum * > SHA256SUMS.txt)
           NOTES=(--generate-notes)

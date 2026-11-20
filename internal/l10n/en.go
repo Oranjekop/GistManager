@@ -1,6 +1,7 @@
 package l10n
 
 var english = map[string]string{
+	"开源仓库":               "Source repository",
 	"1 个文件":              "1 file",
 	"GistManager":        "GistManager",
 	"知道了":                "Dismiss",

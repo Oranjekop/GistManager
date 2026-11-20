@@ -271,6 +271,18 @@ func TestEmptySearchCanReturnToTheList(t *testing.T) {
 	}
 }
 
+func TestSettingsOpensSourceRepository(t *testing.T) {
+	a := fixtureApp(t)
+	var opened string
+	a.openURL = func(location string) error { opened = location; return nil }
+	tt := ui.NewTester(a.View, 1000, 680)
+	click(t, tt, "系统设置")
+	click(t, tt, "开源仓库")
+	if opened != "https://github.com/Oranjekop/GistManager" {
+		t.Fatalf("opened %q", opened)
+	}
+}
+
 func TestUpdateDialogUsesOnlyFormalReleases(t *testing.T) {
 	a := fixtureApp(t)
 	opened := ""

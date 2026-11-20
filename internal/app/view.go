@@ -8,6 +8,7 @@ import (
 
 	"github.com/Oranjekop/GistManager/internal/l10n"
 	"github.com/Oranjekop/GistManager/internal/security"
+	"github.com/Oranjekop/GistManager/internal/update"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
@@ -443,8 +444,12 @@ func (a *App) settingsDialog(c *ui.Context) {
 	state := a.Security.State()
 	modal := ui.Modal(c, &a.settingsOpen, func() {
 		ui.Column(c).Width(460).MaxWidthPercent(100).Gap(16).Children(func() {
-			ui.Column(c).Gap(5).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, l10n.Text("系统设置")).FontSize(22).Bold()
+				ui.Row(c).Grow(1)
+				if ui.Button(c, "GitHub ↗").Label(l10n.Text("开源仓库")).Clicked() {
+					a.open("https://github.com/" + update.Repository)
+				}
 			})
 			a.languageSelector(c)
 			ui.Column(c).Gap(12).Label(l10n.Text("程序密码设置")).Children(func() {
