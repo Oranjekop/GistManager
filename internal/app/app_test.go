@@ -306,19 +306,19 @@ func TestUpdateDialogUsesOnlyFormalReleases(t *testing.T) {
 	}
 }
 
-func TestLegacyColorsAndLanguageCoverage(t *testing.T) {
+func TestMonochromeColorsAndLanguageCoverage(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		theme := legacyTheme(ui.Theme{Dark: dark})
-		accent, text := "#2563eb", "#0f172a"
+		accent, text := "#292929", "#191919"
 		if dark {
-			accent, text = "#38bdf8", "#d7deea"
+			accent, text = "#d9d9d9", "#eeeeee"
 		}
 		if theme.Accent != ui.Hex(accent) || theme.Text != ui.Hex(text) {
-			t.Fatal("legacy UI palette changed")
+			t.Fatal("unexpected UI palette")
 		}
 	}
 	if codeTheme.Background != ui.Hex("#0f172a") || codeTheme.Tokens[editor.TokenString].Color != ui.Hex("#f9a8d4") {
-		t.Fatal("legacy editor palette changed")
+		t.Fatal("unexpected editor palette")
 	}
 	for _, name := range []string{"main.js", "main.mjs", "main.cjs", "main.ts", "App.vue", "a.json", "a.md", "a.yml", "a.yaml", "a.html", "a.css", "a.scss", "a.less", "a.xml", "a.py", "a.java", "a.go", "a.rs", "a.sh", "a.ps1", "a.sql"} {
 		if languageFor(name) == nil {

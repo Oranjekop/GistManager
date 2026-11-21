@@ -122,7 +122,7 @@ func (a *App) welcome(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Grow(1).FillWidth().Center().Padding(24).Children(func() {
 		ui.Column(c).Width(520).MaxWidthPercent(100).Padding(36).Gap(22).Radius(16).Border(1, t.Border).Background(t.Background).
-			Shadow(0, 12, 45, 0, ui.RGBA(10, 40, 70, 0.06)).Children(func() {
+			Shadow(0, 12, 45, 0, ui.RGBA(0, 0, 0, 0.06)).Children(func() {
 			ui.Text(c, l10n.Text("连接 GitHub")).FontSize(27).Bold()
 			ui.Field(c, "GitHub Personal Access Token", func() {
 				if legacyInput(c, &a.tokenDraft).Password().Placeholder("github_pat_… / ghp_…").Label("GitHub Token").Disabled(a.busy).Submitted() {
@@ -391,7 +391,7 @@ func (a *App) workspace(c *ui.Context) {
 		ui.Box(c).Grow(1).FillWidth().MinHeight(100).
 			Draw(func(p *ui.Painter, _ ui.Rect) {
 				scrollbar = p.Theme().Scrollbar
-				p.Theme().Scrollbar = darkPalette.text
+				p.Theme().Scrollbar = ui.Hex("#d7deea")
 			}).
 			DrawOver(func(p *ui.Painter, _ ui.Rect) { p.Theme().Scrollbar = scrollbar }).
 			Children(func() { editor.View(c, a.code).Fill() })

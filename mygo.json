@@ -2,7 +2,7 @@
   "name": "GistManager",
   "slug": "gist-manager",
   "identifier": "com.perzikkop.gist-manager",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "main": ".",
   "out": "dist",
   "icon": "resources/icon.png",
